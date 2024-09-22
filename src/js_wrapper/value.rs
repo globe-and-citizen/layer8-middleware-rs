@@ -39,6 +39,31 @@ impl JsWrapper {
         }
     }
 
+    pub fn js_value(&self) -> JsValue {
+        match self {
+            JsWrapper::Number(val) => JsValue::from_f64(*val),
+            JsWrapper::Boolean(val) => JsValue::from_bool(*val),
+            JsWrapper::String(val) => JsValue::from_str(val),
+            JsWrapper::Object(val) => {
+                let obj = Object::new();
+                for (key, value) in val.iter() {
+                    js_sys::Reflect::set(&obj, &JsValue::from_str(&key), &value.js_value())
+                        .unwrap();
+                }
+                JsValue::from(obj)
+            }
+            JsWrapper::Array(val) => {
+                let arr = Array::new();
+                for value in val.iter() {
+                    arr.push(&value.js_value());
+                }
+                JsValue::from(arr)
+            }
+            JsWrapper::Null => JsValue::null(),
+            JsWrapper::Undefined => JsValue::undefined(),
+        }
+    }
+
     pub fn to_string(&self) -> Result<String, String> {
         match self {
             JsWrapper::String(val) => Ok(val.clone()),
@@ -157,6 +182,22 @@ impl TryInto<Value> for JsValue {
             });
         }
 
+        // Array; we parse the array first before the object since an array is an object
+        if self.is_array() {
+            let arr = Array::from(&self);
+            let mut vec = Vec::new();
+            for elem in arr {
+                let converted_elem: Value = elem.try_into()?;
+                vec.push(converted_elem.value);
+            }
+
+            return Ok(Value {
+                r#type: Type::Array,
+                constructor: "Array".to_string(),
+                value: JsWrapper::Array(vec),
+            });
+        }
+
         // Object
         if self.is_object() {
             // [[key, value],...]  2d array
@@ -186,22 +227,6 @@ impl TryInto<Value> for JsValue {
                 r#type: Type::Object,
                 constructor: "Object".to_string(),
                 value: JsWrapper::Object(map),
-            });
-        }
-
-        // Array
-        if self.is_array() {
-            let arr = Array::from(&self);
-            let mut vec = Vec::new();
-            for elem in arr {
-                let converted_elem: Value = elem.try_into()?;
-                vec.push(converted_elem.value);
-            }
-
-            return Ok(Value {
-                r#type: Type::Array,
-                constructor: "Array".to_string(),
-                value: JsWrapper::Array(vec),
             });
         }
 

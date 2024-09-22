@@ -46,3 +46,23 @@ pub fn wasm_middleware(req: JsValue, resp: JsValue, next: JsValue) -> JsValue {
 
     todo!()
 }
+
+#[cfg(test)]
+mod tests {
+    use wasm_bindgen::prelude::*;
+    use wasm_bindgen_test::*;
+
+    #[wasm_bindgen_test]
+    fn test_wasm() {
+        assert_eq!(super::test_wasm(), "42");
+    }
+
+    // #[wasm_bindgen_test]
+    // fn test_middleware() {
+    //     let req = js_sys::Object::new();
+    //     let resp = js_sys::Object::new();
+    //     let next = js_sys::Object::new();
+
+    //     assert_eq!(super::wasm_middleware(req, resp, next), JsValue::NULL);
+    // }
+}

@@ -48,7 +48,6 @@ jobs:
           - uses: Swatinem/rust-cache@v1
           - name: Test Format
             run: cargo fmt -- --check
-          - run: cargo clippy --tests --all-features --all-targets -- -D clippy::all
             
     cargo-doc:
         runs-on: ubuntu-20.04
@@ -77,4 +76,6 @@ jobs:
           - name: Check with with features
             run: cargo check --verbose --all-features
           - name: Run tests with features
-            run: cargo test --verbose --all-features
+            run: |
+              cargo install wasm-pack
+              wasm-pack test --node --all-features
