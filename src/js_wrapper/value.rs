@@ -15,7 +15,7 @@ pub enum Type {
     Undefined,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum JsWrapper {
     Number(f64),
     Boolean(bool),
@@ -108,9 +108,9 @@ impl serde::Serialize for JsWrapper {
 }
 
 pub struct Value {
-    r#type: Type,
-    constructor: String,
-    value: JsWrapper,
+    pub r#type: Type,
+    pub constructor: String,
+    pub value: JsWrapper,
 }
 
 impl Value {

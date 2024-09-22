@@ -52,6 +52,7 @@ pub fn initialize_ecdh(
     }
 
     if !missing.is_empty() {
+        missing.sort();
         return Err(format!(
             "Missing required headers: {:?}",
             missing.join(", ")
@@ -235,7 +236,7 @@ mod tests {
             //  assert!(val_.unwrap());
             assert_eq!(
                 err,
-                "Missing required headers: \"x-client-uuid, mp-jwt, x-ecdh-init\""
+                "Missing required headers: \"mp-jwt, x-client-uuid, x-ecdh-init\""
             )
         }
 
@@ -254,7 +255,7 @@ mod tests {
             //  assert!(val_.unwrap());
             assert_eq!(
                 err,
-                "Invalid headers: \"mp-jwt, x-ecdh-init, x-client-uuid\""
+                "Invalid headers: \"x-client-uuid, mp-jwt, x-ecdh-init\""
             )
         }
     }

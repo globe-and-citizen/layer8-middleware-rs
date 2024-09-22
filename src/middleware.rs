@@ -1,7 +1,13 @@
+use std::collections::HashMap;
+
 use js_sys::Object;
 use wasm_bindgen::prelude::*;
 
-use crate::js_wrapper;
+use crate::{
+    internals,
+    js_wrapper::{self, JsWrapper, Value},
+    storage::INMEM_STORAGE_INSTANCE,
+};
 
 const VERSION: &str = "1.0.26";
 
@@ -21,35 +27,120 @@ pub fn test_wasm() -> JsValue {
 #[allow(non_snake_case)]
 #[wasm_bindgen(js_name = WASMMiddleware)]
 pub fn wasm_middleware(req: JsValue, resp: JsValue, next: JsValue) -> JsValue {
-    // [[key, value],...]  2d array
-    let req_object = {
-        let val = Object::try_from(&req).expect("expected the req to be an object; qed");
-        Object::entries(val)
-    };
+    let req_object: Value = req.try_into().unwrap();
+    let headers = req_object
+        .get("headers")
+        .expect("this should be the request object; qed");
 
-    let mut done_on_headers = false;
-    for entry in req_object.iter() {
-        if entry.is_null() || entry.is_undefined() {
-            // we skip null or undefined entries if any
-            continue;
-        }
+    let mut short_circuit = false;
+    if headers.is_none() {
+        short_circuit = true;
     }
 
-    if !done_on_headers {
-        console_error("Headers not found in request object");
+    let headers_map = {
+        let headers_object = headers.unwrap();
+        if let JsWrapper::Object(headers) = headers_object {
+            headers
+        } else {
+            short_circuit = true;
+            &HashMap::new()
+        }
+    };
+
+    if short_circuit
+        || headers_map.get("x-tunnel") == None
+        || headers_map.get("x-tunnel") == Some(&JsWrapper::Undefined)
+        || headers_map.get("x-tunnel") == Some(&JsWrapper::Null)
+    {
+        // invoking next middleware
+        js_sys::Function::from(next)
+            .call0(&JsValue::NULL)
+            .expect("expected next to be a function");
         return JsValue::NULL;
     }
 
-    let req_object: js_wrapper::Value = req
-        .try_into()
-        .expect("we expect this req object to be parsable");
+    let init_ecdh = || {
+        let res = INMEM_STORAGE_INSTANCE.with(|storage| {
+            let mut inmem_storage = storage.take();
+            let res = internals::init_ecdh::initialize_ecdh(
+                Value {
+                    r#type: js_wrapper::Type::Object,
+                    constructor: "Object".to_string(),
+                    value: headers.unwrap().clone(),
+                },
+                &mut inmem_storage,
+            );
 
-    todo!()
+            storage.replace(inmem_storage);
+            res
+        });
+
+        match res {
+            Ok(res) => {
+                js_sys::Reflect::set(&resp, &"statusCode".into(), &JsValue::from_f64(200.0))
+                    .unwrap();
+                js_sys::Reflect::set(
+                    &resp,
+                    &"statusMessage".into(),
+                    &JsValue::from_str("ECDH Successfully Completed!"),
+                )
+                .unwrap();
+
+                let set_header =
+                    js_sys::Reflect::get(&resp, &JsValue::from_str("setHeader")).unwrap();
+                let set_header = js_sys::Function::from(set_header);
+                set_header
+                    .call2(
+                        &JsValue::NULL,
+                        &JsValue::from_str("x-shared-secret"),
+                        &JsValue::from_str(&res.shared_secret),
+                    )
+                    .expect("expected setHeader to be a function");
+                set_header
+                    .call2(
+                        &JsValue::NULL,
+                        &JsValue::from_str("mp-JWT"),
+                        &JsValue::from_str(&res.mp_jwt),
+                    )
+                    .expect("expected setHeader to be a function");
+
+                let end = js_sys::Reflect::get(&resp, &JsValue::from_str("end")).unwrap();
+                let end = js_sys::Function::from(end);
+                end.call1(&JsValue::NULL, &JsValue::from_str(&res.shared_secret))
+                    .expect("expected end to be a function");
+            }
+            Err(err) => {
+                console_error(&err);
+
+                js_sys::Reflect::set(&resp, &"statusCode".into(), &JsValue::from_f64(500.0))
+                    .unwrap();
+                js_sys::Reflect::set(
+                    &resp,
+                    &"statusMessage".into(),
+                    &JsValue::from_str("Failure to initialize ECDH"),
+                )
+                .unwrap();
+
+                let end = js_sys::Reflect::get(&resp, &JsValue::from_str("end")).unwrap();
+                let end = js_sys::Function::from(end);
+                end.call1(
+                    &JsValue::NULL,
+                    &JsValue::from_str("500 Internal Server Error"),
+                )
+                .expect("expected end to be a function");
+            }
+        }
+    };
+
+    // some work to add here
+
+    JsValue::NULL
 }
 
 #[cfg(test)]
 mod tests {
-    use wasm_bindgen::prelude::*;
+    use js_sys::Object;
+    use wasm_bindgen::JsValue;
     use wasm_bindgen_test::*;
 
     #[wasm_bindgen_test]
@@ -57,12 +148,16 @@ mod tests {
         assert_eq!(super::test_wasm(), "42");
     }
 
-    // #[wasm_bindgen_test]
-    // fn test_middleware() {
-    //     let req = js_sys::Object::new();
-    //     let resp = js_sys::Object::new();
-    //     let next = js_sys::Object::new();
+    #[wasm_bindgen_test]
+    fn test_mutate_value() {
+        let obj = Object::new();
+        // try and mutate the object
+        {
+            let val = JsValue::from(&obj);
+            js_sys::Reflect::set(&val, &"statusCode".into(), &JsValue::from_f64(200.0)).unwrap();
+        }
 
-    //     assert_eq!(super::wasm_middleware(req, resp, next), JsValue::NULL);
-    // }
+        // making sure the object has the property
+        assert!(obj.has_own_property(&JsValue::from_str("statusCode")));
+    }
 }
