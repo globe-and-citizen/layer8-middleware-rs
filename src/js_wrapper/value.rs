@@ -48,24 +48,11 @@ impl JsWrapper {
 
     pub fn to_number(&self) -> Result<f64, String> {
         match self {
-            JsWrapper::Number(val) => Ok(val.clone()),
+            JsWrapper::Number(val) => Ok(*val),
             val => Err(format!("type {val:?} is not string")),
         }
     }
 }
-
-// impl Display for JsWrapper {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         match self {
-//             JsWrapper::Number(value) => write!(f, "{}", value),
-//             JsWrapper::Boolean(value) => write!(f, "{}", value),
-//             JsWrapper::String(value) => write!(f, "{}", value),
-//             JsWrapper::Object(value) => write!(f, "{:?}", value),
-//             JsWrapper::Array(value) => write!(f, "{:?}", value),
-//             JsWrapper::Null => write!(f, "null"),
-//         }
-//     }
-// }
 
 impl serde::Serialize for JsWrapper {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -185,18 +172,13 @@ impl TryInto<Value> for JsValue {
                     continue;
                 }
 
-                let key_val_entry = {
-                    let val =
-                        Object::try_from(&entry).expect("expected the req to be an object; qed");
-                    Object::entries(val)
-                };
-
+                // [key, value]
+                let key_val_entry = Array::from(&entry);
                 let key = key_val_entry
                     .get(0)
                     .as_string()
                     .expect("expected key to be a string; qed");
                 let value: Value = key_val_entry.get(1).try_into()?;
-
                 map.insert(key, value.value);
             }
 

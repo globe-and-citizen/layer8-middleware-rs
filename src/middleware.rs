@@ -15,7 +15,7 @@ extern "C" {
 #[allow(non_snake_case)]
 #[wasm_bindgen(js_name = TestWASM)]
 pub fn test_wasm() -> JsValue {
-    return JsValue::from_str("42");
+    JsValue::from_str("42")
 }
 
 #[allow(non_snake_case)]

@@ -48,7 +48,7 @@ pub fn prepare_data(res: &Value, data: &Value, sym_key: &Jwk, jwt: String) -> Re
         )
         .expect("no internal errors expected on encryption");
 
-    return Response {
+    Response {
         body,
         status: js_response.status,
         status_text: js_response.status_text,
@@ -56,5 +56,5 @@ pub fn prepare_data(res: &Value, data: &Value, sym_key: &Jwk, jwt: String) -> Re
             ("content-type".to_string(), "application/json".to_string()),
             ("mp-JWT".to_string(), jwt),
         ],
-    };
+    }
 }
