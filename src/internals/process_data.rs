@@ -7,9 +7,9 @@ use layer8_interceptor_rs::{
     types::{Request, Response},
 };
 
-fn process_data(raw_data: &str, key: Jwk) -> Result<Request, Response> {
-    let enc = serde_json::from_str::<HashMap<String, serde_json::Value>>(raw_data)
-        .expect("a valid json object should be deserializable to the hashmap");
+pub(crate) fn process_data(raw_data: &str, key: &Jwk) -> Result<Request, Response> {
+    let enc =
+        serde_json::from_str::<HashMap<String, serde_json::Value>>(raw_data).expect("a valid json object should be deserializable to the hashmap");
 
     let val = match enc.get("data") {
         Some(val) => val,
@@ -23,24 +23,18 @@ fn process_data(raw_data: &str, key: Jwk) -> Result<Request, Response> {
     };
 
     let decoded_data = base64_enc_dec
-        .decode(
-            val.as_str()
-                .expect("expected the value to be a string")
-                .as_bytes(),
-        )
+        .decode(val.as_str().expect("expected the value to be a string").as_bytes())
         .map_err(|err| Response {
             status: 500,
             status_text: format!("Could not decode request {err}"),
             ..Default::default()
         })?;
 
-    let decrypted_data = key
-        .symmetric_decrypt(&decoded_data)
-        .map_err(|err| Response {
-            status: 500,
-            status_text: format!("Could not decrypt request {err}"),
-            ..Default::default()
-        })?;
+    let decrypted_data = key.symmetric_decrypt(&decoded_data).map_err(|err| Response {
+        status: 500,
+        status_text: format!("Could not decrypt request {err}"),
+        ..Default::default()
+    })?;
 
     serde_json::from_slice::<Request>(&decrypted_data).map_err(|err| Response {
         status: 500,
@@ -81,28 +75,20 @@ mod tests {
                 &Request {
                     method: "GET".to_string(),
                     headers: HashMap::from([("x-test".to_string(), "test".to_string())]),
-                    body: serde_json::to_vec(&HashMap::from([(
-                        "test".to_string(),
-                        "test".to_string(),
-                    )]))
-                    .unwrap(),
+                    body: serde_json::to_vec(&HashMap::from([("test".to_string(), "test".to_string())])).unwrap(),
                 },
                 shared_secret.clone(),
             );
 
-            let val = match process_data(&raw_data, shared_secret) {
+            let val = match process_data(&raw_data, &shared_secret) {
                 Ok(val) => val,
-                Err(err) => panic!(
-                    "expected the process_data to return a valid request: {}",
-                    err.status_text
-                ),
+                Err(err) => panic!("expected the process_data to return a valid request: {}", err.status_text),
             };
 
             assert_eq!(val.method, "GET");
             assert_eq!(
                 val.body,
-                serde_json::to_vec(&HashMap::from([("test".to_string(), "test".to_string())]))
-                    .unwrap()
+                serde_json::to_vec(&HashMap::from([("test".to_string(), "test".to_string())])).unwrap()
             );
         }
 
@@ -115,28 +101,20 @@ mod tests {
                 &Request {
                     method: "GET".to_string(),
                     headers: HashMap::from([("x-test".to_string(), "test".to_string())]),
-                    body: serde_json::to_vec(&HashMap::from([(
-                        "test".to_string(),
-                        "test".to_string(),
-                    )]))
-                    .unwrap(),
+                    body: serde_json::to_vec(&HashMap::from([("test".to_string(), "test".to_string())])).unwrap(),
                 },
                 shared_secret2.clone(),
             );
 
-            let val = match process_data(&raw_data, shared_secret2) {
+            let val = match process_data(&raw_data, &shared_secret2) {
                 Ok(val) => val,
-                Err(err) => panic!(
-                    "expected the process_data to return a valid request: {}",
-                    err.status_text
-                ),
+                Err(err) => panic!("expected the process_data to return a valid request: {}", err.status_text),
             };
 
             assert_eq!(val.method, "GET");
             assert_eq!(
                 val.body,
-                serde_json::to_vec(&HashMap::from([("test".to_string(), "test".to_string())]))
-                    .unwrap()
+                serde_json::to_vec(&HashMap::from([("test".to_string(), "test".to_string())])).unwrap()
             );
         }
     }

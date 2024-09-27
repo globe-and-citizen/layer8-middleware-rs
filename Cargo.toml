@@ -29,6 +29,8 @@ base64 = { version = "0.22" }
 js-sys = "0.3"
 serde-wasm-bindgen = "0.6.5"
 jsonwebtoken = "9"
+url = "2.5.2"
+mime-sniffer = "0.1.2"
 
 [dev-dependencies]
 uuid = "1.10.0"

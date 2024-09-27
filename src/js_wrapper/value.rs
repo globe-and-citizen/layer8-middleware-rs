@@ -47,8 +47,7 @@ impl JsWrapper {
             JsWrapper::Object(val) => {
                 let obj = Object::new();
                 for (key, value) in val.iter() {
-                    js_sys::Reflect::set(&obj, &JsValue::from_str(&key), &value.js_value())
-                        .unwrap();
+                    js_sys::Reflect::set(&obj, &JsValue::from_str(&key), &value.js_value()).unwrap();
                 }
                 JsValue::from(obj)
             }
@@ -143,6 +142,14 @@ impl Value {
     pub fn get_type(&self) -> &Type {
         &self.r#type
     }
+
+    pub fn is_null(&self) -> bool {
+        self.r#type == Type::Null
+    }
+
+    pub fn is_undefined(&self) -> bool {
+        self.r#type == Type::Undefined
+    }
 }
 
 /// The only types on this conversion are:
@@ -215,10 +222,7 @@ impl TryInto<Value> for JsValue {
 
                 // [key, value]
                 let key_val_entry = Array::from(&entry);
-                let key = key_val_entry
-                    .get(0)
-                    .as_string()
-                    .expect("expected key to be a string; qed");
+                let key = key_val_entry.get(0).as_string().expect("expected key to be a string; qed");
                 let value: Value = key_val_entry.get(1).try_into()?;
                 map.insert(key, value.value);
             }

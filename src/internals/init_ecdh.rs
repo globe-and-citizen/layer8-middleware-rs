@@ -26,10 +26,7 @@ pub struct InitEcdhReturn {
 ///   - pub: the server public key
 ///   - mpJWT: the JWT
 ///   - error: an error if the function fails
-pub fn initialize_ecdh(
-    headers: Value,
-    inmem_storage: &mut InMemStorage,
-) -> Result<InitEcdhReturn, String> {
+pub fn initialize_ecdh(headers: Value, inmem_storage: &mut InMemStorage) -> Result<InitEcdhReturn, String> {
     let required = HashMap::from([
         ("x-ecdh-init".to_string(), Type::String),
         ("x-client-uuid".to_string(), Type::String),
@@ -53,10 +50,7 @@ pub fn initialize_ecdh(
 
     if !missing.is_empty() {
         missing.sort();
-        return Err(format!(
-            "Missing required headers: {:?}",
-            missing.join(", ")
-        ));
+        return Err(format!("Missing required headers: {:?}", missing.join(", ")));
     }
 
     if !invalid.is_empty() {
@@ -128,12 +122,8 @@ pub fn generate_standard_token(secret_key: &str, time_now: u64) -> Result<String
         expires_at: time_now + (60 * 60 * 24 * 7),
     };
 
-    jsonwebtoken::encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(secret_key.as_bytes()),
-    )
-    .map_err(|e| format!("could not generate standard token: {e}"))
+    jsonwebtoken::encode(&Header::default(), &claims, &EncodingKey::from_secret(secret_key.as_bytes()))
+        .map_err(|e| format!("could not generate standard token: {e}"))
 }
 
 #[cfg(test)]
@@ -170,30 +160,16 @@ mod tests {
         let (client_pri_key, client_pub_key) = generate_key_pair(KeyUse::Ecdh).unwrap();
         let b64_client_pub_key = client_pub_key.export_as_base64();
 
-        let shared_secret = server_pri_key
-            .get_ecdh_shared_secret(&client_pub_key)
-            .unwrap();
+        let shared_secret = server_pri_key.get_ecdh_shared_secret(&client_pub_key).unwrap();
 
         let b64_shared_secret = shared_secret.export_as_base64();
-        let mp_jwt =
-            generate_standard_token(uuid::Uuid::new_v4().to_string().as_str(), now() as u64)
-                .unwrap();
+        let mp_jwt = generate_standard_token(uuid::Uuid::new_v4().to_string().as_str(), now() as u64).unwrap();
 
         // init with valid headers
         {
             let headers = Object::new();
-            js_sys::Reflect::set(
-                &headers,
-                &"x-ecdh-init".into(),
-                &JsValue::from_str(&b64_client_pub_key),
-            )
-            .unwrap();
-            js_sys::Reflect::set(
-                &headers,
-                &"x-client-uuid".into(),
-                &JsValue::from_str(&uuid::Uuid::new_v4().to_string()),
-            )
-            .unwrap();
+            js_sys::Reflect::set(&headers, &"x-ecdh-init".into(), &JsValue::from_str(&b64_client_pub_key)).unwrap();
+            js_sys::Reflect::set(&headers, &"x-client-uuid".into(), &JsValue::from_str(&uuid::Uuid::new_v4().to_string())).unwrap();
             js_sys::Reflect::set(&headers, &"mp-jwt".into(), &JsValue::from_str(&mp_jwt)).unwrap();
 
             let headers: JsValue = headers.into();
@@ -204,28 +180,15 @@ mod tests {
         // init with invalid x_ecdh_init
         {
             let headers = Object::new();
-            js_sys::Reflect::set(
-                &headers,
-                &"x-ecdh-init".into(),
-                &JsValue::from_str("invalid"),
-            )
-            .unwrap();
-            js_sys::Reflect::set(
-                &headers,
-                &"x-client-uuid".into(),
-                &JsValue::from_str(&uuid::Uuid::new_v4().to_string()),
-            )
-            .unwrap();
+            js_sys::Reflect::set(&headers, &"x-ecdh-init".into(), &JsValue::from_str("invalid")).unwrap();
+            js_sys::Reflect::set(&headers, &"x-client-uuid".into(), &JsValue::from_str(&uuid::Uuid::new_v4().to_string())).unwrap();
             js_sys::Reflect::set(&headers, &"mp-jwt".into(), &JsValue::from_str(&mp_jwt)).unwrap();
 
             let headers: JsValue = headers.into();
             let val = headers.try_into().unwrap();
             let err = initialize_ecdh(val, &mut inmem_storage).unwrap_err();
             //  assert!(val_.unwrap());
-            assert_eq!(
-                err,
-                "failure to decode userPubJwk: Failure to decode userPubJWK: Invalid padding"
-            )
+            assert_eq!(err, "failure to decode userPubJwk: Failure to decode userPubJWK: Invalid padding")
         }
 
         // init with no headers
@@ -234,29 +197,21 @@ mod tests {
             let val = headers.try_into().unwrap();
             let err = initialize_ecdh(val, &mut inmem_storage).unwrap_err();
             //  assert!(val_.unwrap());
-            assert_eq!(
-                err,
-                "Missing required headers: \"mp-jwt, x-client-uuid, x-ecdh-init\""
-            )
+            assert_eq!(err, "Missing required headers: \"mp-jwt, x-client-uuid, x-ecdh-init\"")
         }
 
         // init with invalid header types
         {
             let headers = Object::new();
-            js_sys::Reflect::set(&headers, &"x-ecdh-init".into(), &JsValue::from_f64(111.0))
-                .unwrap();
-            js_sys::Reflect::set(&headers, &"x-client-uuid".into(), &JsValue::from_f64(111.0))
-                .unwrap();
+            js_sys::Reflect::set(&headers, &"x-ecdh-init".into(), &JsValue::from_f64(111.0)).unwrap();
+            js_sys::Reflect::set(&headers, &"x-client-uuid".into(), &JsValue::from_f64(111.0)).unwrap();
             js_sys::Reflect::set(&headers, &"mp-jwt".into(), &JsValue::from_f64(111.0)).unwrap();
 
             let headers: JsValue = headers.into();
             let val = headers.try_into().unwrap();
             let err = initialize_ecdh(val, &mut inmem_storage).unwrap_err();
             //  assert!(val_.unwrap());
-            assert_eq!(
-                err,
-                "Invalid headers: \"x-client-uuid, mp-jwt, x-ecdh-init\""
-            )
+            assert_eq!(err, "Invalid headers: \"x-client-uuid, mp-jwt, x-ecdh-init\"")
         }
     }
 }

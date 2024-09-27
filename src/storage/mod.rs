@@ -38,8 +38,7 @@ pub(crate) struct Keys(pub Vec<HashMap<String, Jwk>>);
 
 impl Keys {
     pub fn add(&mut self, key: &str, value: Jwk) {
-        self.0
-            .append(&mut vec![HashMap::from([(key.to_string(), value)])]);
+        self.0.append(&mut vec![HashMap::from([(key.to_string(), value)])]);
     }
 
     pub fn get(&self, key: &str) -> Option<&Jwk> {
@@ -58,10 +57,7 @@ pub struct Jwts(pub Vec<HashMap<String, String>>);
 
 impl Jwts {
     pub fn add(&mut self, key: &str, value: &str) {
-        self.0.append(&mut vec![HashMap::from([(
-            key.to_string(),
-            value.to_string(),
-        )])]);
+        self.0.append(&mut vec![HashMap::from([(key.to_string(), value.to_string())])]);
     }
 
     pub fn get(&self, key: &str) -> Option<&String> {
