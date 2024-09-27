@@ -221,21 +221,22 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) -> JsValue {
 
     let res_ = res.clone();
     let on_end: &Closure<dyn FnMut(wasm_bindgen::JsValue) -> JsValue> = &Closure::new(|_arg| {
-        let raw_data = BODY.with(|body_| body_.take());
+        // let raw_data = BODY.with(|body_| body_.take());
 
-        let request = match process_data(&raw_data, &symmetric_key) {
-            Ok(req) => req,
-            Err(response) => {
-                js_sys::Reflect::set(&res_, &"statusCode".into(), &JsValue::from_f64(response.status as f64))
-                    .expect("expected resp to be a mutable object");
-                js_sys::Reflect::set(&res_, &"statusMessage".into(), &JsValue::from_str(&response.status_text))
-                    .expect("expected resp to be a mutable object");
-                return JsValue::NULL;
-            }
-        };
+        // let request = match process_data(&raw_data, &symmetric_key) {
+        //     Ok(req) => req,
+        //     Err(response) => {
+        //         js_sys::Reflect::set(&res_, &"statusCode".into(), &JsValue::from_f64(response.status as f64))
+        //             .expect("expected resp to be a mutable object");
+        //         js_sys::Reflect::set(&res_, &"statusMessage".into(), &JsValue::from_str(&response.status_text))
+        //             .expect("expected resp to be a mutable object");
+        //         return JsValue::NULL;
+        //     }
+        // };
 
-        // todo
-        JsValue::NULL
+        // // todo
+        // JsValue::NULL
+        todo!()
     });
 
     let on_end = on_end.as_ref().unchecked_ref();

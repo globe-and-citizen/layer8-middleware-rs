@@ -597,7 +597,7 @@ dependencies = [
 [[package]]
 name = "layer8-interceptor-rs"
 version = "0.0.1"
-source = "git+https://github.com/muse254/layer8-interceptor-rs?branch=tests/wgp-integration#ce1627184c64ad021e59935b14c547ff6a4b17ba"
+source = "git+https://github.com/muse254/layer8-interceptor-rs?branch=main#d2abf9474ca4eb6d1e1b688915b572af1e4636a4"
 dependencies = [
  "aes-gcm",
  "base64 0.22.1",
