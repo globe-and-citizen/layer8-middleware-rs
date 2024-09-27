@@ -143,6 +143,14 @@ impl Value {
     pub fn get_type(&self) -> &Type {
         &self.r#type
     }
+
+    pub fn is_null(&self) -> bool {
+        self.r#type == Type::Null
+    }
+
+    pub fn is_undefined(&self) -> bool {
+        self.r#type == Type::Undefined
+    }
 }
 
 /// The only types on this conversion are:
