@@ -7,7 +7,7 @@ use layer8_interceptor_rs::{
     types::{Request, Response},
 };
 
-fn process_data(raw_data: &str, key: Jwk) -> Result<Request, Response> {
+pub(crate) fn process_data(raw_data: &str, key: &Jwk) -> Result<Request, Response> {
     let enc = serde_json::from_str::<HashMap<String, serde_json::Value>>(raw_data)
         .expect("a valid json object should be deserializable to the hashmap");
 
@@ -90,7 +90,7 @@ mod tests {
                 shared_secret.clone(),
             );
 
-            let val = match process_data(&raw_data, shared_secret) {
+            let val = match process_data(&raw_data, &shared_secret) {
                 Ok(val) => val,
                 Err(err) => panic!(
                     "expected the process_data to return a valid request: {}",
@@ -124,7 +124,7 @@ mod tests {
                 shared_secret2.clone(),
             );
 
-            let val = match process_data(&raw_data, shared_secret2) {
+            let val = match process_data(&raw_data, &shared_secret2) {
                 Ok(val) => val,
                 Err(err) => panic!(
                     "expected the process_data to return a valid request: {}",
