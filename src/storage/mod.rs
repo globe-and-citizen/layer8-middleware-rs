@@ -19,8 +19,8 @@ thread_local! {
 
 #[derive(Debug, Clone, Default)]
 pub struct Ecdh {
-    private_key: Jwk,
-    public_key: Jwk,
+    pub private_key: Jwk,
+    pub public_key: Jwk,
 }
 
 impl Ecdh {
@@ -34,12 +34,11 @@ impl Ecdh {
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct Keys(Vec<HashMap<String, Jwk>>);
+pub(crate) struct Keys(pub Vec<HashMap<String, Jwk>>);
 
 impl Keys {
     pub fn add(&mut self, key: &str, value: Jwk) {
-        self.0
-            .append(&mut vec![HashMap::from([(key.to_string(), value)])]);
+        self.0.append(&mut vec![HashMap::from([(key.to_string(), value)])]);
     }
 
     pub fn get(&self, key: &str) -> Option<&Jwk> {
@@ -54,14 +53,11 @@ impl Keys {
 }
 
 #[derive(Debug, Clone, Default)]
-struct Jwts(Vec<HashMap<String, String>>);
+pub struct Jwts(pub Vec<HashMap<String, String>>);
 
 impl Jwts {
     pub fn add(&mut self, key: &str, value: &str) {
-        self.0.append(&mut vec![HashMap::from([(
-            key.to_string(),
-            value.to_string(),
-        )])]);
+        self.0.append(&mut vec![HashMap::from([(key.to_string(), value.to_string())])]);
     }
 
     pub fn get(&self, key: &str) -> Option<&String> {

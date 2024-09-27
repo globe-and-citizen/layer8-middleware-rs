@@ -22,9 +22,19 @@ wasm-bindgen = { version = "0.2", features = ["serde-serialize"] }
 lazy_static = "1.5.0"
 layer8-interceptor-rs = { git = "https://github.com/muse254/layer8-interceptor-rs", features = [
     "no-js",
-] }
+], branch = "main" } # TODO: Update this line before merge with main
 serde = "1.0.210"
 serde_json = "1.0.128"
 base64 = { version = "0.22" }
 js-sys = "0.3"
 serde-wasm-bindgen = "0.6.5"
+jsonwebtoken = "9"
+url = "2.5.2"
+mime-sniffer = "0.1.2"
+
+[dev-dependencies]
+uuid = "1.10.0"
+wasm-bindgen-test = "0.3"
+layer8-interceptor-rs = { git = "https://github.com/muse254/layer8-interceptor-rs", features = [
+    "no-js",
+], branch = "main" } # TODO: Update this line before merge with main

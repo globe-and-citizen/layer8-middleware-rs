@@ -1,0 +1,40 @@
+name: Publish to npm
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          override-file: Cargo.toml
+          target: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: | 
+            cargo install wasm-pack
+
+      - name: Build
+        run: wasm-pack build --target bunder              
+    
+      - name: Install npm
+        uses: actions/setup-node@v2
+        with:
+          node-version: '14'
+
+      - name: Publish to NPM 
+        uses: JS-DevTools/npm-publish@v3
+        with:
+          token: ${{ secrets.NPM_ACCESS_TOKEN }}
+          registry: https://registry.npmjs.org
+          access: public

@@ -15,7 +15,7 @@ pub enum Type {
     Undefined,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum JsWrapper {
     Number(f64),
     Boolean(bool),
@@ -39,6 +39,30 @@ impl JsWrapper {
         }
     }
 
+    pub fn js_value(&self) -> JsValue {
+        match self {
+            JsWrapper::Number(val) => JsValue::from_f64(*val),
+            JsWrapper::Boolean(val) => JsValue::from_bool(*val),
+            JsWrapper::String(val) => JsValue::from_str(val),
+            JsWrapper::Object(val) => {
+                let obj = Object::new();
+                for (key, value) in val.iter() {
+                    js_sys::Reflect::set(&obj, &JsValue::from_str(&key), &value.js_value()).unwrap();
+                }
+                JsValue::from(obj)
+            }
+            JsWrapper::Array(val) => {
+                let arr = Array::new();
+                for value in val.iter() {
+                    arr.push(&value.js_value());
+                }
+                JsValue::from(arr)
+            }
+            JsWrapper::Null => JsValue::null(),
+            JsWrapper::Undefined => JsValue::undefined(),
+        }
+    }
+
     pub fn to_string(&self) -> Result<String, String> {
         match self {
             JsWrapper::String(val) => Ok(val.clone()),
@@ -48,24 +72,11 @@ impl JsWrapper {
 
     pub fn to_number(&self) -> Result<f64, String> {
         match self {
-            JsWrapper::Number(val) => Ok(val.clone()),
+            JsWrapper::Number(val) => Ok(*val),
             val => Err(format!("type {val:?} is not string")),
         }
     }
 }
-
-// impl Display for JsWrapper {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         match self {
-//             JsWrapper::Number(value) => write!(f, "{}", value),
-//             JsWrapper::Boolean(value) => write!(f, "{}", value),
-//             JsWrapper::String(value) => write!(f, "{}", value),
-//             JsWrapper::Object(value) => write!(f, "{:?}", value),
-//             JsWrapper::Array(value) => write!(f, "{:?}", value),
-//             JsWrapper::Null => write!(f, "null"),
-//         }
-//     }
-// }
 
 impl serde::Serialize for JsWrapper {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -96,9 +107,9 @@ impl serde::Serialize for JsWrapper {
 }
 
 pub struct Value {
-    r#type: Type,
-    constructor: String,
-    value: JsWrapper,
+    pub r#type: Type,
+    pub constructor: String,
+    pub value: JsWrapper,
 }
 
 impl Value {
@@ -130,6 +141,14 @@ impl Value {
 
     pub fn get_type(&self) -> &Type {
         &self.r#type
+    }
+
+    pub fn is_null(&self) -> bool {
+        self.r#type == Type::Null
+    }
+
+    pub fn is_undefined(&self) -> bool {
+        self.r#type == Type::Undefined
     }
 }
 
@@ -170,6 +189,22 @@ impl TryInto<Value> for JsValue {
             });
         }
 
+        // Array; we parse the array first before the object since an array is an object
+        if self.is_array() {
+            let arr = Array::from(&self);
+            let mut vec = Vec::new();
+            for elem in arr {
+                let converted_elem: Value = elem.try_into()?;
+                vec.push(converted_elem.value);
+            }
+
+            return Ok(Value {
+                r#type: Type::Array,
+                constructor: "Array".to_string(),
+                value: JsWrapper::Array(vec),
+            });
+        }
+
         // Object
         if self.is_object() {
             // [[key, value],...]  2d array
@@ -185,18 +220,10 @@ impl TryInto<Value> for JsValue {
                     continue;
                 }
 
-                let key_val_entry = {
-                    let val =
-                        Object::try_from(&entry).expect("expected the req to be an object; qed");
-                    Object::entries(val)
-                };
-
-                let key = key_val_entry
-                    .get(0)
-                    .as_string()
-                    .expect("expected key to be a string; qed");
+                // [key, value]
+                let key_val_entry = Array::from(&entry);
+                let key = key_val_entry.get(0).as_string().expect("expected key to be a string; qed");
                 let value: Value = key_val_entry.get(1).try_into()?;
-
                 map.insert(key, value.value);
             }
 
@@ -204,22 +231,6 @@ impl TryInto<Value> for JsValue {
                 r#type: Type::Object,
                 constructor: "Object".to_string(),
                 value: JsWrapper::Object(map),
-            });
-        }
-
-        // Array
-        if self.is_array() {
-            let arr = Array::from(&self);
-            let mut vec = Vec::new();
-            for elem in arr {
-                let converted_elem: Value = elem.try_into()?;
-                vec.push(converted_elem.value);
-            }
-
-            return Ok(Value {
-                r#type: Type::Array,
-                constructor: "Array".to_string(),
-                value: JsWrapper::Array(vec),
             });
         }
 
