@@ -27,7 +27,7 @@ pub fn test_wasm() -> JsValue {
 #[allow(non_snake_case)]
 #[wasm_bindgen(js_name = WASMMiddleware)]
 pub fn wasm_middleware(req: JsValue, resp: JsValue, next: JsValue) -> JsValue {
-    let req_object: Value = req.try_into().unwrap();
+    let req_object: Value = req.clone().try_into().unwrap();
     let headers = req_object
         .get("headers")
         .expect("this should be the request object; qed");
@@ -131,6 +131,56 @@ pub fn wasm_middleware(req: JsValue, resp: JsValue, next: JsValue) -> JsValue {
             }
         }
     };
+
+    let is_ecdh_init = headers_map.get("x-ecdh-init");
+    let client_uuid = headers_map.get("x-client-uuid");
+    if is_ecdh_init.is_none()
+        || client_uuid.is_none()
+        || (is_ecdh_init.is_some() && *is_ecdh_init.unwrap() == JsWrapper::Null)
+        || (is_ecdh_init.is_some() && *is_ecdh_init.unwrap() == JsWrapper::Undefined)
+    {
+        init_ecdh();
+        return JsValue::NULL;
+    }
+
+    let is_client_init = is_ecdh_init.unwrap().to_string().unwrap();
+    let client_uuid = client_uuid.unwrap().to_string().unwrap();
+
+    // get symmetric key for this client
+    let mp_jwt = INMEM_STORAGE_INSTANCE.with(|v| {
+        let val = v.take();
+        v.set(val.clone());
+        val.jwts.get(&client_uuid).cloned()
+    });
+
+    if mp_jwt.is_none() {
+        init_ecdh();
+        return JsValue::NULL;
+    }
+
+    let on = {
+        let on = js_sys::Reflect::get(&req, &JsValue::from_str("on")).unwrap();
+        js_sys::Function::from(on)
+    };
+
+    let val = on.call1(
+        &JsValue::from_str("data"),
+        &JsValue::from_str(
+            "function(args) {
+                body += args[0].toString();
+                return null;
+            }",
+        ),
+    );
+
+    if let Err(err) = val {
+        console_error(format!("error: {:?}", err).as_str());
+    }
+
+    // let end = js_sys::Reflect::get(&resp, &JsValue::from_str("end")).unwrap();
+    // let end = js_sys::Function::from(end);
+    // end.call1(&JsValue::NULL, &JsValue::from_str(&res.shared_secret))
+    //     .expect("expected end to be a function");
 
     // some work to add here
 
