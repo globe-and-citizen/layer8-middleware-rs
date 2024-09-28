@@ -627,6 +627,7 @@ dependencies = [
  "layer8-interceptor-rs",
  "lazy_static",
  "mime-sniffer",
+ "rand",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
@@ -634,6 +635,7 @@ dependencies = [
  "uuid",
  "wasm-bindgen",
  "wasm-bindgen-test",
+ "web-sys",
 ]
 
 [[package]]

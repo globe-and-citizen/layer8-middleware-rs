@@ -25,7 +25,7 @@ jobs:
             cargo install wasm-pack
 
       - name: Build
-        run: wasm-pack build --target bunder              
+        run: wasm-pack build --target nodejs              
     
       - name: Install npm
         uses: actions/setup-node@v2

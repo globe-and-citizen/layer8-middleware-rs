@@ -1,4 +1,6 @@
-function single_fn(dest, fs) {
+const fs = require('fs');
+
+function single_fn(dest) {
     if (dest === "") {
         dest = "tmp";
     }
@@ -9,12 +11,12 @@ function single_fn(dest, fs) {
             fs.mkdirSync(dest, {recursive: true});
         }
 
-        if (req.body === undefined){
+        if (req === null || req.body === undefined || req.body === null){
             next();
             return;
         }
 
-        let file = body.get(name);
+        let file = req.body.file;
         if (file === undefined){
             next();
             return;
@@ -35,7 +37,7 @@ function single_fn(dest, fs) {
             fs.writeFileSync(filePath, uint8Array);
           
             // Set the file to the request body
-            req.set('file', file);
+            req.file = file;
           
             // Continue to the next middleware/handler
             next();
@@ -43,17 +45,17 @@ function single_fn(dest, fs) {
     }
 }
 
-function array_fn(dest, fs){
+function array_fn(dest){
     if (dest === "") {
         dest = "tmp";
     }
 
-    return function(req, res, next, name){
+    return function(req, _res, next, name){
         if (!fs.existsSync(dest)){
             fs.mkdirSync(dest, {recursive: true});
         }
 
-        if (req.body === undefined){
+        if (req.body === undefined || req.body === null){
             next();
             return;
         }
@@ -83,8 +85,4 @@ function array_fn(dest, fs){
     };
 }
 
-function serve_static_fn(dir){
-    return function(req, res, next){
-        next();
-    }
-}
+module.exports = { single_fn, array_fn };

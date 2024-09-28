@@ -47,7 +47,7 @@ impl JsWrapper {
             JsWrapper::Object(val) => {
                 let obj = Object::new();
                 for (key, value) in val.iter() {
-                    js_sys::Reflect::set(&obj, &JsValue::from_str(&key), &value.js_value()).unwrap();
+                    js_sys::Reflect::set(&obj, &JsValue::from_str(key), &value.js_value()).unwrap();
                 }
                 JsValue::from(obj)
             }
