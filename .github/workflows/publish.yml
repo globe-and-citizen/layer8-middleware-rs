@@ -23,8 +23,7 @@ jobs:
       - name: Build
         run: |
           cargo install wasm-pack
-          wasm-pack build --target nodejs
-          cd pkg             
+          wasm-pack build --target nodejs           
     
       - name: Install npm
         uses: actions/setup-node@v2
@@ -37,3 +36,4 @@ jobs:
           token: ${{ secrets.NPM_ACCESS_TOKEN }}
           registry: https://registry.npmjs.org
           access: public
+          package: ./pkg
