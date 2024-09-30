@@ -56,9 +56,9 @@ impl Keys {
 pub struct Jwts(pub Vec<HashMap<String, String>>);
 
 impl Jwts {
-    pub fn add(&mut self, key: &str, value: &str) {
-        self.0.append(&mut vec![HashMap::from([(key.to_string(), value.to_string())])]);
-    }
+    // pub fn add(&mut self, key: &str, value: &str) {
+    //     self.0.append(&mut vec![HashMap::from([(key.to_string(), value.to_string())])]);
+    // }
 
     pub fn get(&self, key: &str) -> Option<&String> {
         for map in self.0.iter() {
@@ -76,10 +76,4 @@ pub(crate) struct InMemStorage {
     pub ecdh: Ecdh,
     pub keys: Keys,
     pub jwts: Jwts,
-}
-
-impl InMemStorage {
-    pub fn get_ecdh(&self) -> &Ecdh {
-        &self.ecdh
-    }
 }

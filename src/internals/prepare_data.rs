@@ -51,7 +51,7 @@ pub fn prepare_data(res: &Value, data: &Value, sym_key: &Jwk, jwt: String) -> Re
         body,
         status: js_response.status,
         status_text: js_response.status_text,
-        headers: vec![("content-type".to_string(), "application/json".to_string()), ("mp-JWT".to_string(), jwt)],
+        headers: vec![("Content-Type".to_string(), "application/json".to_string()), ("mp-JWT".to_string(), jwt)],
     }
 }
 
@@ -166,7 +166,7 @@ mod tests {
             .unwrap();
 
             let res: Value = JsValue::from(res).try_into().unwrap();
-            let data: Value = JsValue::from(data).try_into().unwrap();
+            let data: Value = data.try_into().unwrap();
             let got = prepare_data(&res, &data, &shared_secret, "test_mp_jwt".to_string());
             assert_eq!(got.status, 200);
             assert_eq!(got.status_text, "OK".to_string());
@@ -187,7 +187,7 @@ mod tests {
             js_sys::Reflect::set(&res, &"headers".into(), &JsValue::NULL).unwrap();
 
             let res: Value = JsValue::from(res).try_into().unwrap();
-            let data: Value = JsValue::from(data).try_into().unwrap();
+            let data: Value = data.try_into().unwrap();
             let got = prepare_data(&res, &data, &shared_secret, "test_mp_jwt".to_string());
             assert_eq!(got.status, 200);
             assert_eq!(got.status_text, "OK".to_string());

@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 
-use jsonwebtoken::{EncodingKey, Header};
 use layer8_interceptor_rs::crypto::base64_to_jwk;
-use serde::Serialize;
 
 use crate::{
     js_wrapper::{JsWrapper, Type, Value},
@@ -12,6 +10,7 @@ use crate::{
 #[derive(Debug)]
 pub struct InitEcdhReturn {
     pub shared_secret: String,
+    #[allow(dead_code)]
     pub server_public_key: String,
     pub mp_jwt: String,
 }
@@ -110,32 +109,32 @@ pub fn initialize_ecdh(headers: Value, inmem_storage: &mut InMemStorage) -> Resu
     })
 }
 
-// todo: have a utils module for this
-#[derive(Debug, Serialize)]
-struct StandardClaims {
-    expires_at: u64,
-}
-
-// todo: have a utils module for this
-pub fn generate_standard_token(secret_key: &str, time_now: u64) -> Result<String, String> {
-    let claims = StandardClaims {
-        expires_at: time_now + (60 * 60 * 24 * 7),
-    };
-
-    jsonwebtoken::encode(&Header::default(), &claims, &EncodingKey::from_secret(secret_key.as_bytes()))
-        .map_err(|e| format!("could not generate standard token: {e}"))
-}
-
 #[cfg(test)]
 mod tests {
     use js_sys::Object;
+    use jsonwebtoken::{EncodingKey, Header};
+    use serde::Serialize;
     use wasm_bindgen::{prelude::*, JsValue};
     use wasm_bindgen_test::*;
 
     use layer8_interceptor_rs::crypto::{generate_key_pair, KeyUse};
 
-    use super::{generate_standard_token, initialize_ecdh};
+    use super::initialize_ecdh;
     use crate::storage::{Ecdh, InMemStorage, Jwts, Keys};
+
+    #[derive(Debug, Serialize)]
+    struct StandardClaims {
+        expires_at: u64,
+    }
+
+    pub fn generate_standard_token(secret_key: &str, time_now: u64) -> Result<String, String> {
+        let claims = StandardClaims {
+            expires_at: time_now + (60 * 60 * 24 * 7),
+        };
+
+        jsonwebtoken::encode(&Header::default(), &claims, &EncodingKey::from_secret(secret_key.as_bytes()))
+            .map_err(|e| format!("could not generate standard token: {e}"))
+    }
 
     #[wasm_bindgen]
     extern "C" {
@@ -155,14 +154,14 @@ mod tests {
             jwts: Jwts(vec![]),
         };
 
-        let b64_server_pub_key = server_pub_key.export_as_base64();
+        // let b64_server_pub_key = server_pub_key.export_as_base64();
 
-        let (client_pri_key, client_pub_key) = generate_key_pair(KeyUse::Ecdh).unwrap();
+        let (_, client_pub_key) = generate_key_pair(KeyUse::Ecdh).unwrap();
         let b64_client_pub_key = client_pub_key.export_as_base64();
 
         let shared_secret = server_pri_key.get_ecdh_shared_secret(&client_pub_key).unwrap();
 
-        let b64_shared_secret = shared_secret.export_as_base64();
+        let _ = shared_secret.export_as_base64();
         let mp_jwt = generate_standard_token(uuid::Uuid::new_v4().to_string().as_str(), now() as u64).unwrap();
 
         // init with valid headers
@@ -174,7 +173,7 @@ mod tests {
 
             let headers: JsValue = headers.into();
             let val = headers.try_into().unwrap();
-            let val_ = initialize_ecdh(val, &mut inmem_storage).unwrap();
+            initialize_ecdh(val, &mut inmem_storage).unwrap();
         }
 
         // init with invalid x_ecdh_init
@@ -210,8 +209,8 @@ mod tests {
             let headers: JsValue = headers.into();
             let val = headers.try_into().unwrap();
             let err = initialize_ecdh(val, &mut inmem_storage).unwrap_err();
-            //  assert!(val_.unwrap());
-            assert_eq!(err, "Invalid headers: \"x-client-uuid, mp-jwt, x-ecdh-init\"")
+
+            assert!(err.contains("x-client-uuid") && err.contains("x-ecdh-init") && err.contains("mp-jwt"));
         }
     }
 }

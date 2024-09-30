@@ -25,12 +25,12 @@ jobs:
             cargo install wasm-pack
 
       - name: Build
-        run: wasm-pack build --target bunder              
+        run: wasm-pack build --target nodejs              
     
       - name: Install npm
         uses: actions/setup-node@v2
         with:
-          node-version: '14'
+          node-version: '22'
 
       - name: Publish to NPM 
         uses: JS-DevTools/npm-publish@v3
