@@ -25,8 +25,8 @@ jobs:
           cargo install wasm-pack
           wasm-pack build --target nodejs
           mkdir pkg/src
-          cp src/higher_order_fns.js pkg/src
-
+          cp src/higher_order_fns.js pkg/src     
+    
       - name: Install npm
         uses: actions/setup-node@v2
         with:
