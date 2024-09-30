@@ -20,12 +20,11 @@ jobs:
           override-file: Cargo.toml
           target: wasm32-unknown-unknown
 
-      - name: Install wasm-pack
-        run: | 
-            cargo install wasm-pack
-
       - name: Build
-        run: wasm-pack build --target nodejs              
+        run: |
+          cargo install wasm-pack
+          wasm-pack build --target nodejs
+          cd pkg             
     
       - name: Install npm
         uses: actions/setup-node@v2
