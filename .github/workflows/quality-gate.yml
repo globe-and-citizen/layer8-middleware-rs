@@ -85,7 +85,9 @@ jobs:
               # If macOs install llvm with brew
               if [[ "$RUNNER_OS" == "macOS" ]]; then
                 brew install llvm
-                export PATH="/usr/local/opt/llvm/bin:$PATH"
+                export PATH="/opt/homebrew/opt/llvm/bin:$PATH"
+                export CC=/opt/homebrew/opt/llvm/bin/clang
+                export AR=/opt/homebrew/opt/llvm/bin/llvm-ar
               fi
               cargo install wasm-pack
               wasm-pack test --node --all-features
