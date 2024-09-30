@@ -77,15 +77,15 @@ jobs:
           - uses: Swatinem/rust-cache@v1
           - name: Add wasm32 target
             run: rustup target add wasm32-unknown-unknown
-          # If macOs install llvm with brew
-          - name: Install wasm-pack
+              
+          - name: Check with with features
+            run: cargo check --verbose --all-features
+          - name: Run tests with features
             run: |
+              # If macOs install llvm with brew
               if [[ "$RUNNER_OS" == "macOS" ]]; then
                 brew install llvm
                 export PATH="/usr/local/opt/llvm/bin:$PATH"
               fi
               cargo install wasm-pack
-          - name: Check with with features
-            run: cargo check --verbose --all-features
-          - name: Run tests with features
-            run: wasm-pack test --node --all-features
+              wasm-pack test --node --all-features
