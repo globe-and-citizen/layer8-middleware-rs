@@ -60,7 +60,7 @@ function array_fn(dest){
             return;
         }
 
-        let files = body.getAll(name);
+        let files = req.body.file;
         if (files === undefined){
             next();
             return;
@@ -80,7 +80,7 @@ function array_fn(dest){
             });
         }
 
-        req.set('files', fileArray);
+        req.files = fileArray;
         next();
     };
 }

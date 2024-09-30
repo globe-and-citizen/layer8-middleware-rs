@@ -52,9 +52,6 @@ extern "C" {
 
     #[wasm_bindgen(js_namespace = console)]
     fn log(s: &str);
-
-    // #[wasm_bindgen(js_namespace = File, js_name = "new", catch)]
-    // pub fn new_file(content: Array, name: &str, options: JsValue) -> Result<JsValue, JsValue>;
 }
 
 #[allow(non_snake_case)]
@@ -393,15 +390,18 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) -> JsValue {
 #[allow(non_snake_case)]
 #[wasm_bindgen(js_name = ProcessMultipart)]
 pub fn process_multipart(options: JsValue, _fs: JsValue) -> Object {
-    let dest = js_sys::Reflect::get(&options, &JsValue::from_str("dest"))
-        .expect("expected dest to be a property")
-        .as_string()
-        .expect("expected dest to be a string")
-        .trim_matches('/')
-        .to_string();
+    let dest = {
+        let dest = js_sys::Reflect::get(&options, &JsValue::from_str("dest"))
+            .expect("expected dest to be a property")
+            .as_string()
+            .expect("expected dest to be a string")
+            .trim_matches('/')
+            .to_string();
+        JsValue::from_str(&dest)
+    };
 
-    let single = single_fn(JsValue::from_str(&dest));
-    let array = array_fn(JsValue::from_str(&dest));
+    let single = single_fn(dest.clone());
+    let array = array_fn(dest);
 
     let return_object = Object::new();
     let value = JsValue::from(&return_object);
@@ -809,40 +809,73 @@ mod tests {
         js_sys::Reflect::set(&options, &"dest".into(), &JsValue::from_str("/tmp")).unwrap();
         let res = super::process_multipart(JsValue::from(options), JsValue::NULL);
 
-        // call the single function
-        let single = js_sys::Reflect::get(&res, &JsValue::from_str("single")).unwrap();
-        let single = js_sys::Function::from(single);
+        // call the array function
+        {
+            let array = js_sys::Reflect::get(&res, &JsValue::from_str("array")).unwrap();
+            let array = js_sys::Function::from(array);
+            let req = {
+                let req = Object::new();
+                let file1 = sample_file("foo.txt");
+                let file2 = sample_file("bar.txt");
 
-        let req = {
-            let req = Object::new();
+                let files = Array::from_iter([file1, file2].iter());
 
-            let file = sample_file();
-            let body = Object::new();
-            js_sys::Reflect::set(&body, &"file".into(), &file).unwrap();
-            js_sys::Reflect::set(&req, &"body".into(), &JsValue::from(body)).unwrap();
+                let body = Object::new();
+                js_sys::Reflect::set(&body, &"file".into(), &files).unwrap();
+                js_sys::Reflect::set(&req, &"body".into(), &JsValue::from(body)).unwrap();
 
-            JsValue::from(req)
-        };
+                JsValue::from(req)
+            };
 
-        // noop next function
-        let next = Function::new_no_args("console.log('next called on single')");
+            // noop next function
+            let next = Function::new_no_args("console.log('next called on array')");
+            let res = array.apply(&JsValue::NULL, &Array::from_iter([req, JsValue::NULL, next.into(), JsValue::NULL].iter()));
 
-        let res = single.apply(&JsValue::NULL, &Array::from_iter([req, JsValue::NULL, next.into(), JsValue::NULL].iter()));
-
-        match res {
-            Ok(val) => {
-                assert!(val.is_undefined());
+            match res {
+                Ok(val) => {
+                    assert!(val.is_undefined());
+                }
+                Err(err) => {
+                    panic!("expected single to return an object: {:?}", err);
+                }
             }
-            Err(err) => {
-                panic!("expected single to return an object: {:?}", err);
+        }
+
+        // call the single function
+        {
+            let single = js_sys::Reflect::get(&res, &JsValue::from_str("single")).unwrap();
+            let single = js_sys::Function::from(single);
+
+            let req = {
+                let req = Object::new();
+
+                let file = sample_file("foo.txt");
+                let body = Object::new();
+                js_sys::Reflect::set(&body, &"file".into(), &file).unwrap();
+                js_sys::Reflect::set(&req, &"body".into(), &JsValue::from(body)).unwrap();
+
+                JsValue::from(req)
+            };
+
+            // noop next function
+            let next = Function::new_no_args("console.log('next called on single')");
+
+            let res = single.apply(&JsValue::NULL, &Array::from_iter([req, JsValue::NULL, next.into(), JsValue::NULL].iter()));
+
+            match res {
+                Ok(val) => {
+                    assert!(val.is_undefined());
+                }
+                Err(err) => {
+                    panic!("expected single to return an object: {:?}", err);
+                }
             }
         }
     }
 
-    fn sample_file() -> File {
+    fn sample_file(name: &str) -> File {
         let content = Array::new();
         content.push(&JsValue::from_str("foo"));
-        let name = "foo.txt";
         let options = js_sys::Object::new();
         js_sys::Reflect::set(&options, &JsValue::from_str("type"), &JsValue::from_str("text/plain")).unwrap();
         web_sys::File::new_with_u8_array_sequence(&content, name).unwrap()
