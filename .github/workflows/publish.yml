@@ -30,7 +30,7 @@ jobs:
       - name: Install npm
         uses: actions/setup-node@v2
         with:
-          node-version: '14'
+          node-version: '22'
 
       - name: Publish to NPM 
         uses: JS-DevTools/npm-publish@v3

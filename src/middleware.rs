@@ -1,11 +1,11 @@
 use std::{cell::Cell, collections::HashMap};
 
 use base64::{self, engine::general_purpose::URL_SAFE as base64_enc_dec, Engine as _};
-use js_sys::{Array, ArrayBuffer, Function, Object, Uint8Array};
+use js_sys::{Function, Object, Uint8Array};
 use mime_sniffer::MimeTypeSniffer;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use wasm_bindgen::prelude::*;
-use web_sys::{File, FormData, Worker};
+use web_sys::{File, FormData};
 
 use layer8_interceptor_rs::types::Response;
 
@@ -41,6 +41,7 @@ extern "C" {
 }
 
 /// This block imports Javascript functions that are provided by the JS Runtime.
+#[allow(non_snake_case)]
 #[wasm_bindgen]
 extern "C" {
     #[derive(Debug)]
@@ -588,7 +589,7 @@ pub fn server_static(req: JsValue, res: JsValue, dir: JsValue, fs: JsValue) -> J
         let data = {
             let buff = read_file(&path_).expect("expected file to be read");
             let array_buffer = buff.obj.dyn_ref::<js_sys::ArrayBuffer>().unwrap();
-            let array = js_sys::Uint8Array::new(&array_buffer);
+            let array = js_sys::Uint8Array::new(array_buffer);
             array.to_vec()
         };
 
@@ -771,13 +772,10 @@ fn get_arbitrary_boundary() -> String {
 
 #[cfg(test)]
 mod tests {
-
-    use js_sys::{Array, Function, Object, Uint8Array};
+    use js_sys::{Array, Function, Object};
     use wasm_bindgen::JsValue;
     use wasm_bindgen_test::*;
-    use web_sys::Worker;
-
-    use super::sample_file__;
+    use web_sys::File;
 
     #[wasm_bindgen_test]
     fn test_wasm() {
@@ -818,7 +816,7 @@ mod tests {
         let req = {
             let req = Object::new();
 
-            let file = sample_file__();
+            let file = sample_file();
             let body = Object::new();
             js_sys::Reflect::set(&body, &"file".into(), &file).unwrap();
             js_sys::Reflect::set(&req, &"body".into(), &JsValue::from(body)).unwrap();
@@ -826,34 +824,27 @@ mod tests {
             JsValue::from(req)
         };
 
-        let res = single.apply(
-            &JsValue::NULL,
-            &Array::from_iter([req, JsValue::NULL, Function::new_no_args(
-                "function() {
-                    console.log('done');
-                }",
-            )]),
-            ), JsValue::NULL].iter()),
-        );
+        // noop next function
+        let next = Function::new_no_args("console.log('next called on single')");
+
+        let res = single.apply(&JsValue::NULL, &Array::from_iter([req, JsValue::NULL, next.into(), JsValue::NULL].iter()));
 
         match res {
             Ok(val) => {
-                // assert!(val.is_null());
-
-                println!("{:?}", val);
+                assert!(val.is_undefined());
             }
             Err(err) => {
                 panic!("expected single to return an object: {:?}", err);
             }
         }
     }
-}
 
-fn sample_file__() -> File {
-    let content = Array::new();
-    content.push(&JsValue::from_str("foo"));
-    let name = "foo.txt";
-    let options = js_sys::Object::new();
-    js_sys::Reflect::set(&options, &JsValue::from_str("type"), &JsValue::from_str("text/plain")).unwrap();
-    web_sys::File::new_with_u8_array_sequence(&content, name).unwrap()
+    fn sample_file() -> File {
+        let content = Array::new();
+        content.push(&JsValue::from_str("foo"));
+        let name = "foo.txt";
+        let options = js_sys::Object::new();
+        js_sys::Reflect::set(&options, &JsValue::from_str("type"), &JsValue::from_str("text/plain")).unwrap();
+        web_sys::File::new_with_u8_array_sequence(&content, name).unwrap()
+    }
 }
