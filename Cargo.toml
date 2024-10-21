@@ -1,6 +1,6 @@
 [package]
 name = "layer8-middleware-rs"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 authors = ["Osoro Bironga <fanosoro@gmail.com>"]
 repository = "github.com/muse254/layer8-middleware-rs"
