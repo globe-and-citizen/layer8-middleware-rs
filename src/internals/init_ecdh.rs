@@ -120,7 +120,10 @@ mod tests {
     use layer8_interceptor_rs::crypto::{generate_key_pair, KeyUse};
 
     use super::initialize_ecdh;
-    use crate::{js_wrapper::to_value_from_js_value, storage::{Ecdh, InMemStorage, Jwts, Keys}};
+    use crate::{
+        js_wrapper::to_value_from_js_value,
+        storage::{Ecdh, InMemStorage, Jwts, Keys},
+    };
 
     #[derive(Debug, Serialize)]
     struct StandardClaims {
