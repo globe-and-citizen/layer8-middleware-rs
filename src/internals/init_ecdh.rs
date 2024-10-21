@@ -63,7 +63,7 @@ pub fn initialize_ecdh(headers: Value, inmem_storage: &mut InMemStorage) -> Resu
             .expect("we know the value exists; qed")
         {
             JsWrapper::String(s) => s,
-            _ => unreachable!("we know the value is a string; qed"),
+            _ => return Err("failure to decode userPubJwk as string".to_string()),
         };
 
         base64_to_jwk(user_pub_jwk).map_err(|e| format!("failure to decode userPubJwk: {e}"))?
@@ -82,7 +82,7 @@ pub fn initialize_ecdh(headers: Value, inmem_storage: &mut InMemStorage) -> Resu
             .expect("we know the value exists; qed");
         match val {
             JsWrapper::String(s) => s.as_str(),
-            _ => unreachable!("we know the value is a string; qed"),
+            _ => return Err("failed to decode client uuid as string".to_string()),
         }
     };
 
@@ -98,7 +98,7 @@ pub fn initialize_ecdh(headers: Value, inmem_storage: &mut InMemStorage) -> Resu
             .expect("we know the value exists; qed");
         match val {
             JsWrapper::String(s) => s.as_str(),
-            _ => unreachable!("we know the value is a string; qed"),
+            _ => return Err("failed to decode mp-jwt as string".to_string()),
         }
     };
 
@@ -120,7 +120,7 @@ mod tests {
     use layer8_interceptor_rs::crypto::{generate_key_pair, KeyUse};
 
     use super::initialize_ecdh;
-    use crate::storage::{Ecdh, InMemStorage, Jwts, Keys};
+    use crate::{js_wrapper::to_value_from_js_value, storage::{Ecdh, InMemStorage, Jwts, Keys}};
 
     #[derive(Debug, Serialize)]
     struct StandardClaims {
@@ -172,7 +172,7 @@ mod tests {
             js_sys::Reflect::set(&headers, &"mp-jwt".into(), &JsValue::from_str(&mp_jwt)).unwrap();
 
             let headers: JsValue = headers.into();
-            let val = headers.try_into().unwrap();
+            let val = to_value_from_js_value(&headers).unwrap();
             initialize_ecdh(val, &mut inmem_storage).unwrap();
         }
 
@@ -184,7 +184,7 @@ mod tests {
             js_sys::Reflect::set(&headers, &"mp-jwt".into(), &JsValue::from_str(&mp_jwt)).unwrap();
 
             let headers: JsValue = headers.into();
-            let val = headers.try_into().unwrap();
+            let val = to_value_from_js_value(&headers).unwrap();
             let err = initialize_ecdh(val, &mut inmem_storage).unwrap_err();
             //  assert!(val_.unwrap());
             assert_eq!(err, "failure to decode userPubJwk: Failure to decode userPubJWK: Invalid padding")
@@ -193,7 +193,7 @@ mod tests {
         // init with no headers
         {
             let headers: JsValue = Object::new().into();
-            let val = headers.try_into().unwrap();
+            let val = to_value_from_js_value(&headers).unwrap();
             let err = initialize_ecdh(val, &mut inmem_storage).unwrap_err();
             //  assert!(val_.unwrap());
             assert_eq!(err, "Missing required headers: \"mp-jwt, x-client-uuid, x-ecdh-init\"")
@@ -207,7 +207,7 @@ mod tests {
             js_sys::Reflect::set(&headers, &"mp-jwt".into(), &JsValue::from_f64(111.0)).unwrap();
 
             let headers: JsValue = headers.into();
-            let val = headers.try_into().unwrap();
+            let val = to_value_from_js_value(&headers).unwrap();
             let err = initialize_ecdh(val, &mut inmem_storage).unwrap_err();
 
             assert!(err.contains("x-client-uuid") && err.contains("x-ecdh-init") && err.contains("mp-jwt"));

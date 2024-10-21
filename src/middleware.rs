@@ -1,7 +1,7 @@
 use std::{cell::Cell, collections::HashMap};
 
 use base64::{self, engine::general_purpose::URL_SAFE as base64_enc_dec, Engine as _};
-use js_sys::{Function, Object, Uint8Array};
+use js_sys::{Array, Function, Object, Uint8Array};
 use mime_sniffer::MimeTypeSniffer;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use wasm_bindgen::prelude::*;
@@ -12,7 +12,7 @@ use layer8_interceptor_rs::types::Response;
 use crate::{
     encrypted_image,
     internals::{self, prepare_data::prepare_data, process_data::process_data},
-    js_wrapper::{self, JsWrapper, Value},
+    js_wrapper::{self, to_value_from_js_value, JsWrapper, Type, Value},
     storage::INMEM_STORAGE_INSTANCE,
 };
 
@@ -61,22 +61,36 @@ pub fn test_wasm() -> JsValue {
 }
 
 #[allow(non_snake_case)]
-#[wasm_bindgen(js_name = WASMMiddleware)]
-pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) -> JsValue {
-    let req_object: Value = req.clone().try_into().unwrap();
-    let headers = req_object.get("headers").expect("this should be the request object; qed").cloned();
-    let mut headers_map = match headers.clone() {
+#[wasm_bindgen(js_name = tunnel)]
+pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
+    let req_object = match parse_req_to_value(&req, false) {
+        Ok(val) => val,
+        Err(err) => {
+            console_error(&format!("error converting req to Value: {err}"));
+            js_sys::Function::from(next)
+                .call0(&JsValue::NULL)
+                .expect("expected next to be a function");
+            return;
+        }
+    };
+
+    let mut headers_map = match req_object.get("headers").unwrap().cloned() {
         Some(JsWrapper::Object(headers)) => headers,
+        None => {
+            let headers_ = process_raw_headers(&req_object.get("rawHeaders").unwrap().cloned());
+            headers_
+        }
         _ => {
             // invoking next middleware
             js_sys::Function::from(next)
                 .call0(&JsValue::NULL)
                 .expect("expected next to be a function");
-            return JsValue::NULL;
+            return;
         }
     };
 
     if !headers_map.contains_key("x-tunnel")
+        || headers_map.get("x-tunnel") == Some(&JsWrapper::String("".to_string()))
         || headers_map.get("x-tunnel") == Some(&JsWrapper::Undefined)
         || headers_map.get("x-tunnel") == Some(&JsWrapper::Null)
     {
@@ -84,10 +98,9 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) -> JsValue {
         js_sys::Function::from(next)
             .call0(&JsValue::NULL)
             .expect("expected next to be a function");
-        return JsValue::NULL;
+        return;
     }
 
-    let headers = headers.unwrap();
     let init_ecdh = |resp: &JsValue| {
         let res = INMEM_STORAGE_INSTANCE.with(|storage| {
             let mut inmem_storage = storage.take();
@@ -95,7 +108,7 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) -> JsValue {
                 Value {
                     r#type: js_wrapper::Type::Object,
                     constructor: "Object".to_string(),
-                    value: headers.clone(),
+                    value: JsWrapper::Object(headers_map.clone()),
                 },
                 &mut inmem_storage,
             );
@@ -149,7 +162,7 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) -> JsValue {
         || (is_ecdh_init.is_some() && *is_ecdh_init.unwrap() == JsWrapper::Undefined)
     {
         init_ecdh(&res);
-        return JsValue::NULL;
+        return;
     }
 
     let client_uuid = client_uuid.unwrap().to_string().unwrap();
@@ -166,7 +179,7 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) -> JsValue {
             Some(val) => val,
             None => {
                 init_ecdh(&res);
-                return JsValue::NULL;
+                return;
             }
         }
     };
@@ -183,7 +196,7 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) -> JsValue {
             Some(val) => val,
             None => {
                 init_ecdh(&res);
-                return JsValue::NULL;
+                return;
             }
         }
     };
@@ -335,7 +348,7 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) -> JsValue {
                 &err.as_string()
                     .unwrap_or(" Error: Failed to add event listener to request object.".to_string()),
             );
-            return JsValue::NULL;
+            return;
         }
 
         if let Err(err) = add_event_listener.call1(&JsValue::from_str("end"), on_end) {
@@ -343,7 +356,7 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) -> JsValue {
                 &err.as_string()
                     .unwrap_or(" Error: Failed to add event listener to request object.".to_string()),
             );
-            return JsValue::NULL;
+            return;
         }
     }
 
@@ -352,8 +365,8 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) -> JsValue {
         let resp_ = res.clone(); // No clean way of running away from this. Should be ok since were done with mutations, check if there's a bug 💀
         let symmetric_key = symmetric_key.clone();
         &Closure::new(move |arg: JsValue| {
-            let val: Value = arg.try_into().expect("expected arg to be a Value object");
-            let res: Value = resp_.clone().try_into().expect("expected resp to be a Value object");
+            let val = to_value_from_js_value(&arg).expect("expected arg to be a Value object");
+            let res = to_value_from_js_value(&resp_).expect("expected resp to be a Value object");
             let response = prepare_data(&res, &val, &symmetric_key, mp_jwt.clone());
 
             js_sys::Reflect::set(&resp_, &"statusCode".into(), &JsValue::from_f64(response.status as f64))
@@ -384,7 +397,9 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) -> JsValue {
     js_sys::Reflect::set(&res, &JsValue::from_str("send"), respond).expect("expected resp to be a mutable object");
     js_sys::Reflect::set(&res, &JsValue::from_str("json"), respond).expect("expected resp to be a mutable object");
 
-    JsValue::NULL
+    js_sys::Function::from(next)
+        .call0(&JsValue::NULL)
+        .expect("expected next to be a function");
 }
 
 #[allow(non_snake_case)]
@@ -412,8 +427,16 @@ pub fn process_multipart(options: JsValue, _fs: JsValue) -> Object {
 }
 
 #[allow(non_snake_case)]
-#[wasm_bindgen(js_name = ServerStatic)]
-pub fn server_static(req: JsValue, res: JsValue, dir: JsValue, fs: JsValue) -> JsValue {
+#[wasm_bindgen(js_name = _static)]
+pub fn _static(dir: JsValue) -> JsValue {
+    let higher_order_fn: Closure<dyn FnMut(wasm_bindgen::JsValue, wasm_bindgen::JsValue, wasm_bindgen::JsValue) -> JsValue> =
+        Closure::new(move |req, res, any| server_static(req, res, dir.clone(), any));
+
+    let higher_order_fn: &JsValue = higher_order_fn.as_ref().unchecked_ref();
+    higher_order_fn.clone()
+}
+
+fn server_static(req: JsValue, res: JsValue, dir: JsValue, fs: JsValue) -> JsValue {
     let return_encrypted_image = |res: &JsValue| {
         let array_buffer = Uint8Array::from(encrypted_image::ENCRYPTED_IMAGE_DATA);
 
@@ -429,10 +452,9 @@ pub fn server_static(req: JsValue, res: JsValue, dir: JsValue, fs: JsValue) -> J
         JsValue::NULL
     };
 
-    let mut headers: Value = js_sys::Reflect::get(&req, &JsValue::from_str("headers"))
-        .expect("expected req to have a headers property")
-        .try_into()
-        .expect("expected headers to be a JsValue::Object; qed");
+    let mut headers =
+        to_value_from_js_value(&js_sys::Reflect::get(&req, &JsValue::from_str("headers")).expect("expected req to have a headers property"))
+            .expect("expected headers to be a JsValue::Object; qed");
 
     let client_uuid = match headers.get("x-client-uuid") {
         Ok(Some(val)) => val,
@@ -770,6 +792,146 @@ fn get_arbitrary_boundary() -> String {
     format!("----Layer8FormBoundary{}", base64_enc_dec.encode(random_bytes))
 }
 
+fn process_raw_headers(raw_headers: &Option<JsWrapper>) -> HashMap<String, JsWrapper> {
+    let mut headers_map = HashMap::new();
+    if let Some(JsWrapper::Array(raw_headers)) = raw_headers {
+        for i in (0..raw_headers.len()).step_by(2) {
+            let key = raw_headers[i].clone();
+            let value = raw_headers[i + 1].clone();
+            headers_map.insert(key.to_string().unwrap().to_lowercase().trim().to_string(), value);
+        }
+    }
+
+    headers_map
+}
+
+// modded from to_value_from_js_value, FIXME: refactor
+pub fn parse_req_to_value(js_value: &JsValue, recurse: bool) -> Result<Value, String> {
+    // Null
+    if js_value.is_null() {
+        return Ok(Value {
+            r#type: Type::Null,
+            constructor: "Null".to_string(),
+            value: JsWrapper::Null,
+        });
+    }
+
+    // Undefined
+    if js_value.is_undefined() {
+        return Ok(Value {
+            r#type: Type::Undefined,
+            constructor: "Undefined".to_string(),
+            value: JsWrapper::Undefined,
+        });
+    }
+
+    // Number
+    if let Some(val) = js_value.as_f64() {
+        return Ok(Value {
+            r#type: Type::Number,
+            constructor: "Number".to_string(),
+            value: JsWrapper::Number(val),
+        });
+    }
+
+    // Boolean
+    if let Some(val) = js_value.as_bool() {
+        return Ok(Value {
+            r#type: Type::Boolean,
+            constructor: "Boolean".to_string(),
+            value: JsWrapper::Boolean(val),
+        });
+    }
+
+    // String
+    if js_value.is_string() {
+        return Ok(Value {
+            r#type: Type::String,
+            constructor: "String".to_string(),
+            value: JsWrapper::String(js_value.as_string().expect("expected the value to be a string; qed")),
+        });
+    }
+
+    // Array; we parse the array first before the object since an array is an object
+    if js_value.is_array() {
+        let arr = Array::from(js_value);
+        let mut vec = Vec::new();
+        for elem in arr {
+            if let Ok(val) = parse_req_to_value(&elem, true) {
+                vec.push(val.value);
+            }
+        }
+
+        if vec.is_empty() {
+            return Ok(Value {
+                r#type: Type::Null,
+                constructor: "Null".to_string(),
+                value: JsWrapper::Null,
+            });
+        }
+
+        return Ok(Value {
+            r#type: Type::Array,
+            constructor: "Array".to_string(),
+            value: JsWrapper::Array(vec),
+        });
+    }
+
+    // Object
+    if js_value.is_object() {
+        // [[key, value],...]  2d array
+        let req_object = {
+            let val = Object::try_from(js_value).expect("expected the req to be an object; qed");
+            Object::entries(val)
+        };
+
+        let mut map = HashMap::new();
+        for entry in req_object.iter() {
+            if entry.is_null() || entry.is_undefined() {
+                // we skip null or undefined entries if any
+                continue;
+            }
+
+            // [key, value]
+            let key_val_entry = Array::from(&entry);
+            let key = match key_val_entry.get(0) {
+                val if val.is_undefined() || val.is_null() => continue,
+                val => val.as_string().expect("expected the key to be a string; qed"),
+            };
+
+            log(&format!("Key here is {:?}", key));
+
+            // for everyone's sanity we are only going to recurse if the key is `body`
+            if recurse || key.eq_ignore_ascii_case("body") || key.eq_ignore_ascii_case("headers") || key.eq_ignore_ascii_case("rawHeaders") {
+                match key_val_entry.get(1) {
+                    val if val.is_undefined() || val.is_null() => continue,
+                    val => {
+                        if let Ok(val) = parse_req_to_value(&val, true) {
+                            map.insert(key, val.value);
+                        }
+                    }
+                }
+            }
+        }
+
+        if map.is_empty() {
+            return Ok(Value {
+                r#type: Type::Null,
+                constructor: "Null".to_string(),
+                value: JsWrapper::Null,
+            });
+        }
+
+        return Ok(Value {
+            r#type: Type::Object,
+            constructor: "Object".to_string(),
+            value: JsWrapper::Object(map),
+        });
+    }
+
+    Err("Unknown type".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use js_sys::{Array, Function, Object};
@@ -879,5 +1041,15 @@ mod tests {
         let options = js_sys::Object::new();
         js_sys::Reflect::set(&options, &JsValue::from_str("type"), &JsValue::from_str("text/plain")).unwrap();
         web_sys::File::new_with_u8_array_sequence(&content, name).unwrap()
+    }
+
+    #[wasm_bindgen_test]
+    fn test_try_into() {
+        let val = crate::middleware::to_value_from_js_value(&{
+            let obj = Object::new();
+            JsValue::from(obj)
+        })
+        .unwrap();
+        assert_eq!(*val.get_type(), crate::js_wrapper::Type::Object);
     }
 }

@@ -106,6 +106,7 @@ impl serde::Serialize for JsWrapper {
     }
 }
 
+#[derive(Debug)]
 pub struct Value {
     pub r#type: Type,
     pub constructor: String,
@@ -159,97 +160,108 @@ impl Value {
 /// - Object
 /// - Array
 /// - Null
-impl TryInto<Value> for JsValue {
-    type Error = String;
-    fn try_into(self) -> Result<Value, Self::Error> {
-        // Number
-        if let Some(val) = self.as_f64() {
-            return Ok(Value {
-                r#type: Type::Number,
-                constructor: "Number".to_string(),
-                value: JsWrapper::Number(val),
-            });
+pub fn to_value_from_js_value(js_value: &JsValue) -> Result<Value, String> {
+    // Number
+    if let Some(val) = js_value.as_f64() {
+        return Ok(Value {
+            r#type: Type::Number,
+            constructor: "Number".to_string(),
+            value: JsWrapper::Number(val),
+        });
+    }
+
+    // Boolean
+    if let Some(val) = js_value.as_bool() {
+        return Ok(Value {
+            r#type: Type::Boolean,
+            constructor: "Boolean".to_string(),
+            value: JsWrapper::Boolean(val),
+        });
+    }
+
+    // String
+    if js_value.is_string() {
+        return Ok(Value {
+            r#type: Type::String,
+            constructor: "String".to_string(),
+            value: JsWrapper::String(js_value.as_string().expect("expected the value to be a string; qed")),
+        });
+    }
+
+    // Array; we parse the array first before the object since an array is an object
+    if js_value.is_array() {
+        let arr = Array::from(js_value);
+        let mut vec = Vec::new();
+        for elem in arr {
+            if let Ok(val) = to_value_from_js_value(&elem) {
+                vec.push(val.value);
+            }
         }
 
-        // Boolean
-        if let Some(val) = self.as_bool() {
-            return Ok(Value {
-                r#type: Type::Boolean,
-                constructor: "Boolean".to_string(),
-                value: JsWrapper::Boolean(val),
-            });
-        }
+        return Ok(Value {
+            r#type: Type::Array,
+            constructor: "Array".to_string(),
+            value: JsWrapper::Array(vec),
+        });
+    }
 
-        // String
-        if self.is_string() {
-            return Ok(Value {
-                r#type: Type::String,
-                constructor: "String".to_string(),
-                value: JsWrapper::String(self.as_string().unwrap()),
-            });
-        }
+    // Object
+    if js_value.is_object() {
+        // [[key, value],...]  2d array
+        let req_object = {
+            let val = Object::try_from(js_value).expect("expected the req to be an object; qed");
+            Object::entries(val)
+        };
 
-        // Array; we parse the array first before the object since an array is an object
-        if self.is_array() {
-            let arr = Array::from(&self);
-            let mut vec = Vec::new();
-            for elem in arr {
-                let converted_elem: Value = elem.try_into()?;
-                vec.push(converted_elem.value);
+        let mut map = HashMap::new();
+        for entry in req_object.iter() {
+            if entry.is_null() || entry.is_undefined() {
+                // we skip null or undefined entries if any
+                continue;
             }
 
-            return Ok(Value {
-                r#type: Type::Array,
-                constructor: "Array".to_string(),
-                value: JsWrapper::Array(vec),
-            });
-        }
-
-        // Object
-        if self.is_object() {
-            // [[key, value],...]  2d array
-            let req_object = {
-                let val = Object::try_from(&self).expect("expected the req to be an object; qed");
-                Object::entries(val)
-            };
-
-            let mut map = HashMap::new();
-            for entry in req_object.iter() {
-                if entry.is_null() || entry.is_undefined() {
-                    // we skip null or undefined entries if any
-                    continue;
-                }
-
-                // [key, value]
-                let key_val_entry = Array::from(&entry);
-                let key = key_val_entry.get(0).as_string().expect("expected key to be a string; qed");
-                let value: Value = key_val_entry.get(1).try_into()?;
-                map.insert(key, value.value);
+            // [key, value]
+            let key_val_entry = Array::from(&entry);
+            if key_val_entry.length() != 2 {
+                continue;
             }
 
+            let key = key_val_entry.get(0).as_string().expect("expected key to be a string; qed");
+            if let Ok(val) = to_value_from_js_value(&key_val_entry.get(1)) {
+                map.insert(key, val.value);
+            }
+        }
+
+        if !map.is_empty() {
             return Ok(Value {
                 r#type: Type::Object,
                 constructor: "Object".to_string(),
                 value: JsWrapper::Object(map),
             });
-        }
-
-        if self.is_null() {
+        } else {
             return Ok(Value {
                 r#type: Type::Null,
                 constructor: "Null".to_string(),
                 value: JsWrapper::Null,
             });
         }
-
-        if self.is_undefined() {
-            return Ok(Value {
-                r#type: Type::Undefined,
-                constructor: "Undefined".to_string(),
-                value: JsWrapper::Undefined,
-            });
-        }
-
-        Err("Unknown type".to_string())
     }
+
+    if js_value.is_null() {
+        return Ok(Value {
+            r#type: Type::Null,
+            constructor: "Null".to_string(),
+            value: JsWrapper::Null,
+        });
+    }
+
+    if js_value.is_undefined() {
+        return Ok(Value {
+            r#type: Type::Undefined,
+            constructor: "Undefined".to_string(),
+            value: JsWrapper::Undefined,
+        });
+    }
+
+    Err("Unknown type".to_string())
 }

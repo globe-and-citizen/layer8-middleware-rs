@@ -34,13 +34,11 @@ pub fn prepare_data(res: &Value, data: &Value, sym_key: &Jwk, jwt: String) -> Re
                         // do nothing
                     }
 
-                    _ => unimplemented!(), // infallible; triggers for debugging
+                    _ => {} // infallible; triggers for debugging
                 },
                 _ => {}
             }
         }
-    } else {
-        unimplemented!() // infallible; triggers for debugging
     }
 
     let body = sym_key
@@ -64,7 +62,7 @@ mod tests {
     use wasm_bindgen::JsValue;
     use wasm_bindgen_test::*;
 
-    use crate::js_wrapper::Value;
+    use crate::js_wrapper::to_value_from_js_value;
 
     use super::prepare_data;
 
@@ -92,8 +90,8 @@ mod tests {
             )
             .unwrap();
 
-            let res: Value = JsValue::from(res).try_into().unwrap();
-            let data: Value = JsValue::from(data).try_into().unwrap();
+            let res = to_value_from_js_value(&JsValue::from(res)).unwrap();
+            let data = to_value_from_js_value(&JsValue::from(data)).unwrap();
             let got = prepare_data(&res, &data, &shared_secret, "test_mp_jwt".to_string());
             assert_eq!(got.status, 200);
             assert_eq!(got.status_text, "OK".to_string());
@@ -135,8 +133,8 @@ mod tests {
             )
             .unwrap();
 
-            let res: Value = JsValue::from(res).try_into().unwrap();
-            let data: Value = JsValue::from(data).try_into().unwrap();
+            let res = to_value_from_js_value(&JsValue::from(res)).unwrap();
+            let data = to_value_from_js_value(&JsValue::from(data)).unwrap();
             let got = prepare_data(&res, &data, &shared_secret, "test_mp_jwt".to_string());
             assert_eq!(got.status, 200);
             assert_eq!(got.status_text, "OK".to_string());
@@ -165,8 +163,8 @@ mod tests {
             )
             .unwrap();
 
-            let res: Value = JsValue::from(res).try_into().unwrap();
-            let data: Value = data.try_into().unwrap();
+            let res = to_value_from_js_value(&JsValue::from(res)).unwrap();
+            let data = to_value_from_js_value(&data).unwrap();
             let got = prepare_data(&res, &data, &shared_secret, "test_mp_jwt".to_string());
             assert_eq!(got.status, 200);
             assert_eq!(got.status_text, "OK".to_string());
@@ -186,8 +184,8 @@ mod tests {
             js_sys::Reflect::set(&res, &"statusText".into(), &JsValue::from_str("OK")).unwrap();
             js_sys::Reflect::set(&res, &"headers".into(), &JsValue::NULL).unwrap();
 
-            let res: Value = JsValue::from(res).try_into().unwrap();
-            let data: Value = data.try_into().unwrap();
+            let res = to_value_from_js_value(&JsValue::from(res)).unwrap();
+            let data = to_value_from_js_value(&data).unwrap();
             let got = prepare_data(&res, &data, &shared_secret, "test_mp_jwt".to_string());
             assert_eq!(got.status, 200);
             assert_eq!(got.status_text, "OK".to_string());

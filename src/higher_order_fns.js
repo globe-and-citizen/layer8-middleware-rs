@@ -12,19 +12,25 @@ function single_fn(dest) {
         }
 
         if (req === null || req.body === undefined || req.body === null){
-            next();
+            if (next !== undefined && next !== null){
+                next();
+            }
             return;
         }
 
         let file = req.body.file;
         if (file === undefined){
-            next();
+            if (next !== undefined && next !== null){
+                next();
+            }
             return;
         }
 
         // Check if file has a File constructor
         if (file.constructor.name !== 'File') {
-            next();
+            if (next !== undefined && next !== null){
+                next();
+            }
             return;
         }
 
@@ -40,7 +46,9 @@ function single_fn(dest) {
             req.file = file;
           
             // Continue to the next middleware/handler
-            next();
+            if (next !== undefined || next !== null){
+                next();
+            }
           });
     }
 }
@@ -56,13 +64,17 @@ function array_fn(dest){
         }
 
         if (req.body === undefined || req.body === null){
-            next();
+            if (next !== undefined && next !== null){
+                next();
+            }
             return;
         }
 
         let files = req.body.file;
         if (files === undefined){
-            next();
+            if (next !== undefined && next !== null){
+                next();
+            }
             return;
         }
 
@@ -81,7 +93,9 @@ function array_fn(dest){
         }
 
         req.files = fileArray;
-        next();
+        if (next !== undefined && next !== null){
+            next();
+        }
     };
 }
 
