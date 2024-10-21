@@ -25,9 +25,10 @@ jobs:
           cargo install wasm-pack
           wasm-pack build --target nodejs
           mkdir pkg/src
-          cp src/higher_order_fns.js pkg/src
+          cp src/higher_order_fns.js pkg
           sudo apt-get -y update && sudo apt-get -y install gawk
-          gawk -i inplace 'NR==5 { $0 = "const { array_fn, single_fn } = require(`./src/higher_order_fns.js`);" } { print }' ./pkg/layer8_middleware_rs.js  
+          awk '{ if (NR == 13) { print $0 " \"higher_order_fns.js\", "; } else { print $0; } }' ./pkg/package.json > temp.json && mv temp.json ./package.json 
+          gawk -i inplace 'NR==5 { $0 = "const { array_fn, single_fn } = require(`./higher_order_fns.js`);" } { print }' ./pkg/layer8_middleware_rs.js  
     
       - name: Install npm
         uses: actions/setup-node@v2
