@@ -9,6 +9,7 @@ use crate::{
 
 #[derive(Debug)]
 pub struct InitEcdhReturn {
+    #[allow(dead_code)]
     pub shared_secret: String,
     #[allow(dead_code)]
     pub server_public_key: String,
@@ -102,6 +103,9 @@ pub fn initialize_ecdh(headers: Value, inmem_storage: &mut InMemStorage) -> Resu
         }
     };
 
+    // saving the mp-jwt to the jwts
+    inmem_storage.jwts.add(client_uuid, mp_jwt);
+
     Ok(InitEcdhReturn {
         shared_secret: b64_shared_secret,
         server_public_key: b64_pub_key,
@@ -122,7 +126,7 @@ mod tests {
     use super::initialize_ecdh;
     use crate::{
         js_wrapper::to_value_from_js_value,
-        storage::{Ecdh, InMemStorage, Jwts, Keys},
+        storage::{Ecdh, InMemStorage},
     };
 
     #[derive(Debug, Serialize)]
@@ -153,8 +157,7 @@ mod tests {
                 private_key: server_pri_key.clone(),
                 public_key: server_pub_key.clone(),
             },
-            keys: Keys(vec![]),
-            jwts: Jwts(vec![]),
+            ..Default::default()
         };
 
         // let b64_server_pub_key = server_pub_key.export_as_base64();
@@ -217,3 +220,5 @@ mod tests {
         }
     }
 }
+
+// CLIENT --> INTERCEPTOR --> PROXY --> SERVER(MIDDLEWARE --> HANDLER) then back to CLIENT using the reverse path

@@ -37,6 +37,8 @@ web-sys = { version = "0.3.70", features = [
     "File",
     "Blob",
     "Worker",
+    "Response",
+    "Headers", "ResponseInit", "Request"
 ] }
 
 [dev-dependencies]

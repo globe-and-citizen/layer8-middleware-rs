@@ -145,11 +145,15 @@ impl Value {
     }
 
     pub fn is_null(&self) -> bool {
-        self.r#type == Type::Null
+        self.r#type.eq(&Type::Null)
     }
 
     pub fn is_undefined(&self) -> bool {
-        self.r#type == Type::Undefined
+        self.r#type.eq(&Type::Undefined)
+    }
+
+    pub fn is_object(&self) -> bool {
+        self.r#type.eq(&Type::Object)
     }
 }
 
@@ -232,19 +236,11 @@ pub fn to_value_from_js_value(js_value: &JsValue) -> Result<Value, String> {
             }
         }
 
-        if !map.is_empty() {
-            return Ok(Value {
-                r#type: Type::Object,
-                constructor: "Object".to_string(),
-                value: JsWrapper::Object(map),
-            });
-        } else {
-            return Ok(Value {
-                r#type: Type::Null,
-                constructor: "Null".to_string(),
-                value: JsWrapper::Null,
-            });
-        }
+        return Ok(Value {
+            r#type: Type::Object,
+            constructor: "Object".to_string(),
+            value: JsWrapper::Object(map),
+        });
     }
 
     if js_value.is_null() {
