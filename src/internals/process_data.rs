@@ -6,6 +6,13 @@ use layer8_interceptor_rs::{
     crypto::Jwk,
     types::{Request, Response},
 };
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize)]
+pub struct ProcessedData {
+    pub request: Option<Request>,
+    pub response: Option<Response>,
+}
 
 pub(crate) fn process_data(raw_data: &str, key: &Jwk) -> Result<Request, Response> {
     let enc =

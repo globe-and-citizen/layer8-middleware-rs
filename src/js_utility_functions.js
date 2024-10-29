@@ -99,4 +99,72 @@ function array_fn(dest){
     };
 }
 
-module.exports = { single_fn, array_fn };
+function request_set_url(req, url) { 
+    req.url = url;
+}
+
+function request_set_header(req, key, val) {
+    req.setHeader(key, val);
+}
+
+function request_set_body(req, body) {
+    req.body = body;
+}
+
+function request_get_url(req) {
+    return req.url
+}
+
+function request_headers(req) { return req.headers }
+
+function request_callbacks(req, res, next, process_data, process_content_type) {
+    var body = '';
+    req.on('data', (data) => {
+        body += data.toString();
+    })
+
+    req.on('end', () => {
+        const processed_data = JSON.parse(process_data(body));
+        if (processed_data.response !== undefined && processed_data.response !== null ){
+            const response =  processed_data.response;
+            res.statusMessage = response.status_text;
+            res.statusCode = response.status;
+            return;
+        }
+        
+        const request = processed_data.request;
+        req.method = request.method
+
+        for (let key in request.headers) {
+            if (request.headers.hasOwnProperty(key)) {
+                value = exampleObj[key];
+                req.setHeader(key, value);
+            }
+        }
+
+        process_content_type(req, res, JSON.stringify(process_data.request))
+
+        // finally we can call the next middleware
+        next()
+    })
+}
+
+function response_add_header(res, key, val){ res.setHeader(key, val) }
+
+function response_set_status(res, status) { res.statusCode = status }
+
+function response_set_status_text(res, status_text) { res.statusMessage = status_text}
+
+function response_respond(res){}
+
+function response_custom_json_fn(res) {}
+
+function response_custom_send_fn(res) {}
+
+
+
+module.exports = { 
+    single_fn, array_fn,
+    request_set_header, request_set_body, request_set_url, request_get_url, request_headers, request_callbacks,
+    response_add_header, response_set_status, response_set_status_text, response_custom_json_fn, response_custom_send_fn
+};

@@ -40,6 +40,7 @@ web-sys = { version = "0.3.70", features = [
     "Response",
     "Headers", "ResponseInit", "Request"
 ] }
+form_urlencoded = "1.2.1"
 
 [dev-dependencies]
 uuid = "1.10.0"
