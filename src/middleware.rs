@@ -4,8 +4,9 @@ use base64::{self, engine::general_purpose::URL_SAFE as base64_enc_dec, Engine a
 use js_sys::{Array, Function, Object, Uint8Array};
 use mime_sniffer::MimeTypeSniffer;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
+use serde_json::json;
 use wasm_bindgen::prelude::*;
-use web_sys::{File, FormData, Headers};
+use web_sys::{File, FormData};
 
 use layer8_interceptor_rs::{
     crypto::Jwk,
@@ -16,7 +17,6 @@ use crate::{
     encrypted_image,
     internals::{
         self,
-        prepare_data::prepare_data,
         process_data::{process_data, ProcessedData},
     },
     js_wrapper::{self, to_value_from_js_value, JsWrapper, Type, Value},
@@ -52,12 +52,17 @@ extern "C" {
         res: &JsValue,
         next: &JsValue,
         process_data: &dyn Fn(&JsValue) -> JsValue,
-        process_content_type: &dyn Fn(JsValue, JsValue, JsValue) -> (),
+        process_content_type: &dyn Fn(JsValue, JsValue, JsValue),
+        respond_callback: &dyn Fn(JsValue, JsValue),
     );
 
     fn response_add_header(res: &JsValue, key: &str, val: &str);
     fn response_set_status(res: &JsValue, status: u16);
     fn response_set_status_text(res: &JsValue, status_text: &str);
+    fn response_set_body(res: &JsValue, body: JsValue);
+    fn response_get_headers(res: &JsValue) -> JsValue;
+    fn response_get_status(res: &JsValue) -> u16;
+    fn response_get_status_text(res: &JsValue) -> String;
     fn response_custom_json_fn(res: &JsValue);
     fn response_custom_send_fn(res: &JsValue);
 }
@@ -91,34 +96,7 @@ pub fn test_wasm() -> JsValue {
 
 #[allow(non_snake_case)]
 #[wasm_bindgen(js_name = middleware_tester)]
-pub fn middleware_tester(req: JsValue, res: JsValue, next: JsValue) {
-    // let headers_map = {
-    //     let headers_object = Object::entries(&js_sys::Object::from(request_headers(req)));
-    //     let mut map = HashMap::new();
-    //     for entry in headers_object.iter() {
-    //         if entry.is_null() || entry.is_undefined() {
-    //             // we skip null or undefined entries if any
-    //             continue;
-    //         }
-
-    //         // [key, value]
-    //         let key_val_entry = Array::from(&entry);
-    //         let key = key_val_entry.get(0).as_string().expect("expected key to be a string; qed");
-    //         if let Ok(val) = to_value_from_js_value(&key_val_entry.get(1)) {
-    //             map.insert(key, val.value);
-    //         }
-    //     }
-
-    //     map
-    // };
-
-    // log(&format!("Middleware Headers: {:?}", headers_map));
-
-    // response_set_status(&res, 418);
-    // response_set_status_text(&res, "I'm a teapot");
-
-    // request_set_url(&req, "peak_if_this_works");
-
+pub fn middleware_tester(_req: JsValue, _res: JsValue, next: JsValue) {
     if let Err(err) = Function::from(next).call0(&JsValue::NULL) {
         console_error(&format!("Error invoking next middleware: {err:?}"));
     }
@@ -177,15 +155,15 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
 
         match res {
             Ok(res) => {
-                log(&format!("ECDH Successfully Completed!"));
-                response_set_status(&resp, 200);
-                response_set_status_text(&resp, "ECDH Successfully Completed!");
-                response_add_header(&resp, "mp-JWT", &res.mp_jwt);
+                log("ECDH Successfully Completed!");
+                response_set_status(resp, 200);
+                response_set_status_text(resp, "ECDH Successfully Completed!");
+                response_add_header(resp, "mp-JWT", &res.mp_jwt);
             }
             Err(err) => {
                 console_error(&err);
-                response_set_status(&resp, 500);
-                response_set_status_text(&resp, "Failure to initialize ECDH");
+                response_set_status(resp, 500);
+                response_set_status_text(resp, "Failure to initialize ECDH");
             }
         }
     };
@@ -277,15 +255,53 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
 
     let process_content_type: &dyn Fn(JsValue, JsValue, JsValue) = {
         &move |req, res, processed_req| {
-            let processed_req = serde_json::from_str::<Request>(&processed_req.as_string().expect("expected processed_req to be a string"))
-                .expect("expected processed_req to be a valid Request object; qed");
-            let mut req_body = serde_json::from_slice::<serde_json::Map<String, serde_json::Value>>(&processed_req.body)
-                .expect("expected req.body to be a valid json object");
+            let processed_req = serde_json::from_str::<Request>(&processed_req.as_string().unwrap_or_else(|| {
+                panic!(
+                    "{}",
+                    {
+                        let msg = "expected processed_req to be a valid Request object";
+                        console_error(msg);
+                        msg
+                    }
+                    .to_string()
+                )
+            }))
+            .unwrap_or_else(|_| {
+                panic!(
+                    "{}",
+                    {
+                        let msg = "expected processed_req to be a valid Request object";
+                        console_error(msg);
+                        msg
+                    }
+                    .to_string()
+                )
+            });
+            let mut req_body = serde_json::from_slice::<serde_json::Map<String, serde_json::Value>>(&processed_req.body).unwrap_or_else(|_| {
+                panic!(
+                    "{}",
+                    {
+                        let msg = "expected req.body to be a valid json object";
+                        console_error(msg);
+                        msg
+                    }
+                    .to_string()
+                )
+            });
 
             match processed_req.headers.get("content-type") {
                 Some(x) if x.eq("application/layer8.buffer+json") => {
-                    let url_ = get_url_path_from_body(&req_body)
-                        .expect("expected the body to have a __url_path key, this is used to determine the url path for the request");
+                    let url_ = get_url_path_from_body(&req_body).unwrap_or_else(|| {
+                        panic!(
+                            "{}",
+                            {
+                                let msg = "expected the body to have a __url_path key, this is used to determine the url path for the request";
+                                console_error(msg);
+                                msg
+                            }
+                            .to_string()
+                        )
+                    });
                     request_set_url(&req, &url_);
 
                     let form_data = match convert_body_to_form_data(&req_body) {
@@ -305,14 +321,55 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
 
                 _ => {
                     if let Some(val) = req_body.get("__url_path") {
-                        let url_path = val.as_str().expect("expected url_path to be a string");
-                        let parsed_url = url::Url::parse(url_path).expect("expected the url_path to be a valid url path, check the __url_path key");
+                        let url_path = val.as_str().unwrap_or_else(|| {
+                            panic!(
+                                "{}",
+                                {
+                                    let msg = "expected __url_path to be a string";
+                                    console_error(msg);
+                                    msg
+                                }
+                                .to_string()
+                            )
+                        });
+                        let parsed_url = url::Url::parse(url_path).unwrap_or_else(|_| {
+                            panic!(
+                                "{}",
+                                {
+                                    let msg = "expected the url_path to be a valid url path, check the __url_path key";
+                                    console_error(msg);
+                                    msg
+                                }
+                                .to_string()
+                            )
+                        });
+
                         let query_pairs: HashMap<_, _> = parsed_url.query_pairs().into_owned().collect();
 
                         let query = form_urlencoded::Serializer::new(String::new()).extend_pairs(query_pairs.iter()).finish();
 
-                        let mut url_ = url::Url::parse(&request_get_url(&req).as_string().expect("expected req to have a url property"))
-                            .expect("expected the url to be a valid url");
+                        let mut url_ = url::Url::parse(&request_get_url(&req).as_string().unwrap_or_else(|| {
+                            panic!(
+                                "{}",
+                                {
+                                    let msg = "expected the url to be a string";
+                                    console_error(msg);
+                                    msg
+                                }
+                                .to_string()
+                            )
+                        }))
+                        .unwrap_or_else(|_| {
+                            panic!(
+                                "{}",
+                                {
+                                    let msg = "expected the url to be a valid url";
+                                    console_error(msg);
+                                    msg
+                                }
+                                .to_string()
+                            )
+                        });
                         url_.set_query(Some(&query));
                         request_set_url(&req, url_.as_str());
 
@@ -320,67 +377,43 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
                         req_body.remove("__url_path").unwrap();
                     }
 
-                    request_set_body(&req, JsValue::from_str(&String::from_utf8_lossy(&processed_req.body).to_string()));
+                    request_set_body(&req, JsValue::from_str(&String::from_utf8_lossy(&processed_req.body)));
                 }
             }
         }
     };
 
-    let respond_callback: &dyn Fn(JsValue, JsValue, JsValue) = {
+    let respond_callback: &dyn Fn(JsValue, JsValue) = {
         let key = symmetric_key.clone();
         let mp_jwt = mp_jwt.clone();
-        &move |req, res, data| {
-            // let val = js_wrapper::Value::from(JsValue::NULL); // todo
-            // let response = prepare_data(&res, &val, &key, mp_jwt);
+        &move |res, data| {
+            let data_ = to_value_from_js_value(&data).unwrap_or_else(|_| {
+                panic!(
+                    "{}",
+                    {
+                        let msg = "expected data to be a valid JsValue";
+                        console_error(msg);
+                        msg
+                    }
+                    .to_string()
+                )
+            });
+
+            let response = prepare_data(&res, &data_, &key, &mp_jwt);
+            response_set_status(&res, response.status);
+            response_set_status_text(&res, &response.status_text);
+            for (key, val) in response.headers {
+                response_add_header(&res, &key, &val);
+            }
+            let data = json!({
+                "data": base64_enc_dec.encode(&response.body).to_string(),
+            })
+            .to_string();
+            response_set_body(&res, JsValue::from_str(&data));
         }
     };
 
-    request_callbacks(&req, &res, &next, process_data_callback, process_content_type);
-
-    // // Overwrite all response functions
-    // let respond: &Closure<dyn FnMut(wasm_bindgen::JsValue) -> JsValue> = {
-    //     // let resp_ = res.clone(); // No clean way of running away from this. Should be ok since were done with mutations, check if there's a bug 💀
-    //     // let resp_ = resp_.unwrap();
-
-    //     let symmetric_key = symmetric_key.clone();
-    //     &Closure::new(move |arg: JsValue| {
-    //         let val = to_value_from_js_value(&arg).expect("expected arg to be a Value object");
-    //         // let res = to_value_from_js_value(&resp_).expect("expected resp to be a Value object");
-    //         let response = prepare_data(&res, &val, &symmetric_key, mp_jwt.clone());
-
-    //         js_sys::Reflect::set(&resp_, &"statusCode".into(), &JsValue::from_f64(response.status as f64))
-    //             .expect("expected resp to be a mutable object");
-    //         js_sys::Reflect::set(&resp_, &"statusMessage".into(), &JsValue::from_str(&response.status_text))
-    //             .expect("expected resp to be a mutable object");
-
-    //         let set = js_sys::Reflect::get(&resp_, &JsValue::from_str("set")).unwrap();
-    //         let set = js_sys::Function::from(set);
-    //         for (key, val) in response.headers {
-    //             set.call2(&JsValue::NULL, &JsValue::from_str(&key), &JsValue::from_str(&val))
-    //                 .expect("expected set to be a function");
-    //         }
-
-    //         let end = js_sys::Reflect::get(&resp_, &JsValue::from_str("end")).unwrap();
-    //         let end = js_sys::Function::from(end);
-    //         end.call1(
-    //             &JsValue::NULL,
-    //             &JsValue::from_str(&format!("{{\"data\": \"{}\"}}", base64_enc_dec.encode(&response.body))),
-    //         )
-    //         .expect("expected end to be a function");
-
-    //         JsValue::NULL
-    //     })
-    // };
-
-    // let respond = respond.as_ref().unchecked_ref();
-    // js_sys::Reflect::set(&res, &JsValue::from_str("send"), respond).expect("expected resp to be a mutable object");
-    // js_sys::Reflect::set(&res, &JsValue::from_str("json"), respond).expect("expected resp to be a mutable object");
-    // response_custom_json_fn(&res);
-    // response_custom_send_fn(&res);
-
-    js_sys::Function::from(next)
-        .call0(&JsValue::NULL)
-        .expect("expected next to be a function");
+    request_callbacks(&req, &res, &next, process_data_callback, process_content_type, respond_callback);
 }
 
 #[allow(non_snake_case)]
@@ -773,21 +806,6 @@ fn get_arbitrary_boundary() -> String {
     format!("----Layer8FormBoundary{}", base64_enc_dec.encode(random_bytes))
 }
 
-// fn process_raw_headers(raw_headers: &Option<JsWrapper>) -> HashMap<String, JsWrapper> {
-//     let mut headers_map = HashMap::new();
-//     if let Some(JsWrapper::Array(raw_headers)) = raw_headers {
-//         for i in (0..raw_headers.len()).step_by(2) {
-//             let key = raw_headers[i].clone();
-//             let value = raw_headers[i + 1].clone();
-//             headers_map.insert(key.to_string().unwrap().to_lowercase().trim().to_string(), value);
-//         }
-//     }
-
-//     log(&format!("headers_map: {:?}", headers_map)); // debug log
-
-//     headers_map
-// }
-
 // modded from to_value_from_js_value, FIXME: refactor
 pub fn parse_req_to_value(js_value: &JsValue, recurse: bool) -> Result<Value, String> {
     // Null
@@ -903,6 +921,54 @@ pub fn parse_req_to_value(js_value: &JsValue, recurse: bool) -> Result<Value, St
     }
 
     Err("Unknown type".to_string())
+}
+
+// use layer8_interceptor_rs::{crypto::Jwk, types::Response};
+
+// use crate::js_wrapper::{JsWrapper, Value};
+
+pub fn prepare_data(res: &JsValue, data: &Value, sym_key: &Jwk, jwt: &str) -> Response {
+    let mut js_response = Response {
+        body: serde_json::to_vec(data.get_value()).expect("we implemented Serialize for JsWrapper; qed"),
+        status: 200,
+        ..Default::default()
+    };
+
+    js_response.status = response_get_status(res);
+    js_response.status_text = response_get_status_text(res);
+    js_response.headers = {
+        let headers_object = Object::entries(&js_sys::Object::from(response_get_headers(res)));
+        let mut headers = Vec::new();
+        for entry in headers_object.iter() {
+            if entry.is_null() || entry.is_undefined() {
+                // we skip null or undefined entries if any
+                continue;
+            }
+
+            // [key, value]
+            let key_val_entry = Array::from(&entry);
+            let key = key_val_entry.get(0).as_string().expect("expected key to be a string; qed");
+            if let Ok(val) = to_value_from_js_value(&key_val_entry.get(1)) {
+                headers.push((key.clone(), val.value.to_string().expect("expected value to be a string; qed")));
+            }
+        }
+
+        headers
+    };
+
+    let body = sym_key
+        .symmetric_encrypt(&serde_json::to_vec(&js_response).expect("the type implements Serialize"))
+        .expect("no internal errors expected on encryption");
+
+    Response {
+        body,
+        status: js_response.status,
+        status_text: js_response.status_text,
+        headers: vec![
+            ("Content-Type".to_string(), "application/json".to_string()),
+            ("mp-JWT".to_string(), jwt.to_string()),
+        ],
+    }
 }
 
 #[cfg(test)]

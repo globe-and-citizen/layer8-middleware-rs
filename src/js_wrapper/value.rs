@@ -155,6 +155,10 @@ impl Value {
     pub fn is_object(&self) -> bool {
         self.r#type.eq(&Type::Object)
     }
+
+    pub fn is_string(&self) -> bool {
+        self.r#type.eq(&Type::String)
+    }
 }
 
 /// The only types on this conversion are:

@@ -133,7 +133,7 @@ function request_callbacks(req, res, next, process_data, process_content_type) {
         }
         
         const request = processed_data.request;
-        req.method = request.method
+        req.method = request.method;
 
         for (let key in request.headers) {
             if (request.headers.hasOwnProperty(key)) {
@@ -142,10 +142,9 @@ function request_callbacks(req, res, next, process_data, process_content_type) {
             }
         }
 
-        process_content_type(req, res, JSON.stringify(process_data.request))
-
-        // finally we can call the next middleware
-        next()
+        // Overwrite all response functions
+        process_content_type(req, res, JSON.stringify(process_data.request));
+        next();
     })
 }
 
@@ -154,6 +153,20 @@ function response_add_header(res, key, val){ res.setHeader(key, val) }
 function response_set_status(res, status) { res.statusCode = status }
 
 function response_set_status_text(res, status_text) { res.statusMessage = status_text}
+
+function response_set_body(res, body) { res.body = body }
+
+function response_get_headers(res) {
+    return res.headers
+}
+
+function response_get_status(res) {
+    return res.statusCode
+}
+
+function response_get_status_text(res) {
+    return res.statusMessage
+}
 
 function response_respond(res){}
 
@@ -166,5 +179,6 @@ function response_custom_send_fn(res) {}
 module.exports = { 
     single_fn, array_fn,
     request_set_header, request_set_body, request_set_url, request_get_url, request_headers, request_callbacks,
-    response_add_header, response_set_status, response_set_status_text, response_custom_json_fn, response_custom_send_fn
+    response_add_header, response_set_status, response_set_status_text, response_set_body, response_get_headers, response_get_status, response_get_status_text,
+    response_custom_json_fn, response_custom_send_fn
 };

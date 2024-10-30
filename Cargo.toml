@@ -19,6 +19,7 @@ panic = "abort"
 crate-type = ["cdylib"]
 
 [dependencies]
+web-sys = { version = "0.3.70" }
 wasm-bindgen = { version = "0.2", features = ["serde-serialize"] }
 lazy_static = "1.5.0"
 layer8-interceptor-rs = { git = "https://github.com/muse254/layer8-interceptor-rs", features = [
@@ -32,14 +33,6 @@ serde-wasm-bindgen = "0.6.5"
 url = "2.5.2"
 mime-sniffer = "0.1.2"
 rand = { version = "0.8.5", features = ["small_rng"] }
-web-sys = { version = "0.3.70", features = [
-    "FormData",
-    "File",
-    "Blob",
-    "Worker",
-    "Response",
-    "Headers", "ResponseInit", "Request"
-] }
 form_urlencoded = "1.2.1"
 
 [dev-dependencies]
