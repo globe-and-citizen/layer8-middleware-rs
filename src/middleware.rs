@@ -8,17 +8,11 @@ use serde_json::json;
 use wasm_bindgen::prelude::*;
 use web_sys::{File, FormData};
 
-use layer8_interceptor_rs::{
-    crypto::Jwk,
-    types::{Request, Response},
-};
+use layer8_interceptor_rs::{crypto::Jwk, types::Response};
 
 use crate::{
     encrypted_image,
-    internals::{
-        self,
-        process_data::{process_data, ProcessedData},
-    },
+    internals::{self, process_data::process_data},
     js_wrapper::{self, to_value_from_js_value, JsWrapper, Type, Value},
     storage::INMEM_STORAGE_INSTANCE,
 };
@@ -41,30 +35,25 @@ thread_local! {
 extern "C" {
     fn array_fn(dest: JsValue) -> Function;
     fn single_fn(dest: JsValue) -> Function;
+    fn as_json_string(val: &JsValue) -> String;
 
     fn request_set_header(req: &JsValue, key: &str, val: &str);
     fn request_set_body(req: &JsValue, body: JsValue);
     fn request_set_url(req: &JsValue, url: &str);
     fn request_get_url(req: &JsValue) -> JsValue;
     fn request_headers(req: &JsValue) -> JsValue;
-    fn request_callbacks(
-        req: &JsValue,
-        res: &JsValue,
-        next: &JsValue,
-        process_data: &dyn Fn(&JsValue) -> JsValue,
-        process_content_type: &dyn Fn(JsValue, JsValue, JsValue),
-        respond_callback: &dyn Fn(JsValue, JsValue),
-    );
+    fn request_get_body_string(req: &JsValue) -> JsValue;
+    fn request_callbacks(res: &JsValue, next: &JsValue, symmetric_key: JsValue, mp_jwt: JsValue, respond_callback: JsValue);
 
     fn response_add_header(res: &JsValue, key: &str, val: &str);
     fn response_set_status(res: &JsValue, status: u16);
     fn response_set_status_text(res: &JsValue, status_text: &str);
-    fn response_set_body(res: &JsValue, body: JsValue);
+    fn response_set_body(res: &JsValue, body: &[u8]);
     fn response_get_headers(res: &JsValue) -> JsValue;
-    fn response_get_status(res: &JsValue) -> u16;
-    fn response_get_status_text(res: &JsValue) -> String;
-    fn response_custom_json_fn(res: &JsValue);
-    fn response_custom_send_fn(res: &JsValue);
+    fn response_get_status(res: &JsValue) -> JsValue;
+    fn response_get_status_text(res: &JsValue) -> JsValue;
+    fn response_end(res: &JsValue, data: JsValue);
+    fn call_fn(function: &JsValue);
 }
 // process_data(raw_data: &str, key: &Jwk) -> Result<Request, Response>
 
@@ -159,6 +148,7 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
                 response_set_status(resp, 200);
                 response_set_status_text(resp, "ECDH Successfully Completed!");
                 response_add_header(resp, "mp-JWT", &res.mp_jwt);
+                response_add_header(resp, "server_pubKeyECDH", &res.server_public_key);
             }
             Err(err) => {
                 console_error(&err);
@@ -170,10 +160,9 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
 
     let is_ecdh_init = headers_map.get("x-ecdh-init");
     let client_uuid = headers_map.get("x-client-uuid");
-    if is_ecdh_init.is_none()
-        || client_uuid.is_none()
-        || (is_ecdh_init.is_some() && *is_ecdh_init.unwrap() == JsWrapper::Null)
-        || (is_ecdh_init.is_some() && *is_ecdh_init.unwrap() == JsWrapper::Undefined)
+    if client_uuid.is_none()
+        || (is_ecdh_init.is_some() && *is_ecdh_init.unwrap() != JsWrapper::Null)
+        || (is_ecdh_init.is_some() && *is_ecdh_init.unwrap() != JsWrapper::Undefined)
     {
         init_ecdh(&res);
 
@@ -230,78 +219,22 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
         }
     };
 
-    let process_data_callback: &dyn Fn(&JsValue) -> JsValue = {
-        let key = symmetric_key.clone();
-        &move |body: &JsValue| {
-            let body = body.as_string().expect("expected body to be a string");
+    // we are not waiting for the `on end event` and `on data event` to be called; still figuring how to work that in in a way that works
+    let body = request_get_body_string(&req);
+    match process_data(
+        &body.as_string().expect("the data was encrypted to the envelope by the interceptor"),
+        &symmetric_key,
+    ) {
+        Ok(processed_req) => {
+            log("Successfully processed data!");
 
-            let processed_data = match process_data(&body, &key) {
-                Ok(req) => ProcessedData {
-                    request: Some(req),
-                    response: None,
-                },
-                Err(rep) => ProcessedData {
-                    request: None,
-                    response: Some(rep),
-                },
-            };
-
-            JsValue::from_str(
-                &serde_json::to_string(&processed_data)
-                    .expect("the data implements Serialize, expected the data to be serializable to a string; qed"),
-            )
-        }
-    };
-
-    let process_content_type: &dyn Fn(JsValue, JsValue, JsValue) = {
-        &move |req, res, processed_req| {
-            let processed_req = serde_json::from_str::<Request>(&processed_req.as_string().unwrap_or_else(|| {
-                panic!(
-                    "{}",
-                    {
-                        let msg = "expected processed_req to be a valid Request object";
-                        console_error(msg);
-                        msg
-                    }
-                    .to_string()
-                )
-            }))
-            .unwrap_or_else(|_| {
-                panic!(
-                    "{}",
-                    {
-                        let msg = "expected processed_req to be a valid Request object";
-                        console_error(msg);
-                        msg
-                    }
-                    .to_string()
-                )
-            });
-            let mut req_body = serde_json::from_slice::<serde_json::Map<String, serde_json::Value>>(&processed_req.body).unwrap_or_else(|_| {
-                panic!(
-                    "{}",
-                    {
-                        let msg = "expected req.body to be a valid json object";
-                        console_error(msg);
-                        msg
-                    }
-                    .to_string()
-                )
-            });
+            let mut req_body = serde_json::from_slice::<serde_json::Map<String, serde_json::Value>>(&processed_req.body)
+                .expect("expected req.body to be a valid json object; qed");
 
             match processed_req.headers.get("content-type") {
                 Some(x) if x.eq("application/layer8.buffer+json") => {
-                    let url_ = get_url_path_from_body(&req_body).unwrap_or_else(|| {
-                        panic!(
-                            "{}",
-                            {
-                                let msg = "expected the body to have a __url_path key, this is used to determine the url path for the request";
-                                console_error(msg);
-                                msg
-                            }
-                            .to_string()
-                        )
-                    });
+                    let url_ = get_url_path_from_body(&req_body)
+                        .expect("expected the body to have a __url_path key, this is used to determine the url path for the request");
                     request_set_url(&req, &url_);
 
                     let form_data = match convert_body_to_form_data(&req_body) {
@@ -321,55 +254,15 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
 
                 _ => {
                     if let Some(val) = req_body.get("__url_path") {
-                        let url_path = val.as_str().unwrap_or_else(|| {
-                            panic!(
-                                "{}",
-                                {
-                                    let msg = "expected __url_path to be a string";
-                                    console_error(msg);
-                                    msg
-                                }
-                                .to_string()
-                            )
-                        });
-                        let parsed_url = url::Url::parse(url_path).unwrap_or_else(|_| {
-                            panic!(
-                                "{}",
-                                {
-                                    let msg = "expected the url_path to be a valid url path, check the __url_path key";
-                                    console_error(msg);
-                                    msg
-                                }
-                                .to_string()
-                            )
-                        });
+                        let url_path = val.as_str().expect("expected __url_path to be a string; qed");
+                        let parsed_url = url::Url::parse(url_path).expect("expected the url_path to be a valid url path, check the __url_path key");
 
                         let query_pairs: HashMap<_, _> = parsed_url.query_pairs().into_owned().collect();
 
                         let query = form_urlencoded::Serializer::new(String::new()).extend_pairs(query_pairs.iter()).finish();
 
-                        let mut url_ = url::Url::parse(&request_get_url(&req).as_string().unwrap_or_else(|| {
-                            panic!(
-                                "{}",
-                                {
-                                    let msg = "expected the url to be a string";
-                                    console_error(msg);
-                                    msg
-                                }
-                                .to_string()
-                            )
-                        }))
-                        .unwrap_or_else(|_| {
-                            panic!(
-                                "{}",
-                                {
-                                    let msg = "expected the url to be a valid url";
-                                    console_error(msg);
-                                    msg
-                                }
-                                .to_string()
-                            )
-                        });
+                        let mut url_ = url::Url::parse(&request_get_url(&req).as_string().expect("expected the url to be a string; qed"))
+                            .expect("expected the url to be a valid url; qed");
                         url_.set_query(Some(&query));
                         request_set_url(&req, url_.as_str());
 
@@ -381,39 +274,54 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
                 }
             }
         }
-    };
+        Err(processed_resp) => {
+            log("Issue processing data!");
 
-    let respond_callback: &dyn Fn(JsValue, JsValue) = {
-        let key = symmetric_key.clone();
-        let mp_jwt = mp_jwt.clone();
-        &move |res, data| {
-            let data_ = to_value_from_js_value(&data).unwrap_or_else(|_| {
-                panic!(
-                    "{}",
-                    {
-                        let msg = "expected data to be a valid JsValue";
-                        console_error(msg);
-                        msg
-                    }
-                    .to_string()
-                )
-            });
-
-            let response = prepare_data(&res, &data_, &key, &mp_jwt);
-            response_set_status(&res, response.status);
-            response_set_status_text(&res, &response.status_text);
-            for (key, val) in response.headers {
-                response_add_header(&res, &key, &val);
-            }
-            let data = json!({
-                "data": base64_enc_dec.encode(&response.body).to_string(),
-            })
-            .to_string();
-            response_set_body(&res, JsValue::from_str(&data));
+            response_set_status(&res, processed_resp.status);
+            response_set_status_text(&res, &processed_resp.status_text);
         }
-    };
+    }
 
-    request_callbacks(&req, &res, &next, process_data_callback, process_content_type, respond_callback);
+    let sym_key = serde_json::to_string(&symmetric_key)
+        .map(|val| JsValue::from_str(&val))
+        .expect("expected symmetric key to be serializable to a string; qed");
+    let jwt = JsValue::from_str(&mp_jwt);
+    let respond_callback: JsValue = Closure::once_into_js(|res, data, sym_key, jwt| {
+        respond_callback(&res, &data, sym_key, jwt);
+    });
+
+    // let respond_callback_wrapper_ = respond_callback_wrapper.as_ref().unchecked_ref();
+    request_callbacks(&res, &next, sym_key, jwt, respond_callback);
+}
+fn respond_callback(res: &JsValue, data: &JsValue, sym_key: JsValue, jwt: JsValue) {
+    let sym_key = serde_json::from_str::<Jwk>(&sym_key.as_string().expect("expected sym_key to be a string"))
+        .expect("expected sym_key to be a valid json object; qed"); // infalliable, we know the data is a valid json object
+
+    let mut data_ = Vec::new();
+    if data.is_string() {
+        data_ = data.as_string().expect("expected data to be a string").as_bytes().to_vec();
+    } else if data.is_object() {
+        data_ = as_json_string(data).as_bytes().to_vec();
+    } else {
+        console_error(&format!("expected data to be a string or an object, have: {:?}", data));
+    }
+
+    let resp = prepare_data(&res, &data_, &sym_key, &jwt.as_string().expect("expected jwt to be a string"));
+
+    response_set_status(&res, resp.status);
+    response_set_status_text(&res, &resp.status_text);
+
+    for (key, val) in resp.headers {
+        response_add_header(&res, &key, &val);
+    }
+
+    let data = json!({
+        "data": base64_enc_dec.encode(&resp.body).to_string(),
+    })
+    .to_string();
+
+    response_set_body(&res, data.as_bytes());
+    response_end(&res, JsValue::from_str(&data));
 }
 
 #[allow(non_snake_case)]
@@ -923,33 +831,39 @@ pub fn parse_req_to_value(js_value: &JsValue, recurse: bool) -> Result<Value, St
     Err("Unknown type".to_string())
 }
 
-// use layer8_interceptor_rs::{crypto::Jwk, types::Response};
-
-// use crate::js_wrapper::{JsWrapper, Value};
-
-pub fn prepare_data(res: &JsValue, data: &Value, sym_key: &Jwk, jwt: &str) -> Response {
+pub fn prepare_data(res: &JsValue, data: &[u8], sym_key: &Jwk, jwt: &str) -> Response {
     let mut js_response = Response {
-        body: serde_json::to_vec(data.get_value()).expect("we implemented Serialize for JsWrapper; qed"),
+        body: Vec::from(data),
         status: 200,
         ..Default::default()
     };
 
-    js_response.status = response_get_status(res);
-    js_response.status_text = response_get_status_text(res);
-    js_response.headers = {
-        let headers_object = Object::entries(&js_sys::Object::from(response_get_headers(res)));
-        let mut headers = Vec::new();
-        for entry in headers_object.iter() {
-            if entry.is_null() || entry.is_undefined() {
-                // we skip null or undefined entries if any
-                continue;
-            }
+    if let Some(status) = response_get_status(res).as_f64() {
+        js_response.status = status as u16;
+    }
 
-            // [key, value]
-            let key_val_entry = Array::from(&entry);
-            let key = key_val_entry.get(0).as_string().expect("expected key to be a string; qed");
-            if let Ok(val) = to_value_from_js_value(&key_val_entry.get(1)) {
-                headers.push((key.clone(), val.value.to_string().expect("expected value to be a string; qed")));
+    if let Some(status_text) = response_get_status_text(res).as_string() {
+        js_response.status_text = status_text;
+    }
+
+    js_response.headers = {
+        let mut headers = Vec::new();
+        let headers_ = response_get_headers(res);
+        if !headers_.is_null() && !headers_.is_undefined() {
+            let headers_object = Object::entries(&js_sys::Object::from(headers_));
+
+            for entry in headers_object.iter() {
+                if entry.is_null() || entry.is_undefined() {
+                    // we skip null or undefined entries if any
+                    continue;
+                }
+
+                // [key, value]
+                let key_val_entry = Array::from(&entry);
+                let key = key_val_entry.get(0).as_string().expect("expected key to be a string; qed");
+                if let Ok(val) = to_value_from_js_value(&key_val_entry.get(1)) {
+                    headers.push((key.clone(), val.value.to_string().expect("expected value to be a string; qed")));
+                }
             }
         }
 
