@@ -306,13 +306,13 @@ fn respond_callback(res: &JsValue, data: &JsValue, sym_key: JsValue, jwt: JsValu
         console_error(&format!("expected data to be a string or an object, have: {:?}", data));
     }
 
-    let resp = prepare_data(&res, &data_, &sym_key, &jwt.as_string().expect("expected jwt to be a string"));
+    let resp = prepare_data(res, &data_, &sym_key, &jwt.as_string().expect("expected jwt to be a string"));
 
-    response_set_status(&res, resp.status);
-    response_set_status_text(&res, &resp.status_text);
+    response_set_status(res, resp.status);
+    response_set_status_text(res, &resp.status_text);
 
     for (key, val) in resp.headers {
-        response_add_header(&res, &key, &val);
+        response_add_header(res, &key, &val);
     }
 
     let data = json!({
@@ -320,8 +320,8 @@ fn respond_callback(res: &JsValue, data: &JsValue, sym_key: JsValue, jwt: JsValu
     })
     .to_string();
 
-    response_set_body(&res, data.as_bytes());
-    response_end(&res, JsValue::from_str(&data));
+    response_set_body(res, data.as_bytes());
+    response_end(res, JsValue::from_str(&data));
 }
 
 #[allow(non_snake_case)]
