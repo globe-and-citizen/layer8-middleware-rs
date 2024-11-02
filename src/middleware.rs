@@ -53,7 +53,6 @@ extern "C" {
     fn response_get_status(res: &JsValue) -> JsValue;
     fn response_get_status_text(res: &JsValue) -> JsValue;
     fn response_end(res: &JsValue, data: JsValue);
-    fn call_fn(function: &JsValue);
 }
 // process_data(raw_data: &str, key: &Jwk) -> Result<Request, Response>
 
