@@ -52,9 +52,8 @@ extern "C" {
     fn response_get_headers(res: &JsValue) -> JsValue;
     fn response_get_status(res: &JsValue) -> JsValue;
     fn response_get_status_text(res: &JsValue) -> JsValue;
-    fn response_end(res: &JsValue, data: JsValue);
+    fn response_end(res: &JsValue, body: JsValue);
 }
-// process_data(raw_data: &str, key: &Jwk) -> Result<Request, Response>
 
 #[wasm_bindgen(module = "fs")]
 extern "C" {
@@ -252,6 +251,8 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
                 }
 
                 _ => {
+                    log("");
+
                     if let Some(val) = req_body.get("__url_path") {
                         let url_path = val.as_str().expect("expected __url_path to be a string; qed");
                         let parsed_url = url::Url::parse(url_path).expect("expected the url_path to be a valid url path, check the __url_path key");
@@ -289,7 +290,6 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
         respond_callback(&res, &data, sym_key, jwt);
     });
 
-    // let respond_callback_wrapper_ = respond_callback_wrapper.as_ref().unchecked_ref();
     request_callbacks(&res, &next, sym_key, jwt, respond_callback);
 }
 fn respond_callback(res: &JsValue, data: &JsValue, sym_key: JsValue, jwt: JsValue) {
@@ -319,7 +319,7 @@ fn respond_callback(res: &JsValue, data: &JsValue, sym_key: JsValue, jwt: JsValu
     })
     .to_string();
 
-    response_set_body(res, data.as_bytes());
+    // response_set_body(&res, &data.as_bytes());
     response_end(res, JsValue::from_str(&data));
 }
 

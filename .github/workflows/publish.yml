@@ -28,7 +28,7 @@ jobs:
           cp src/js_utility_functions.js pkg
           sudo apt-get -y update && sudo apt-get -y install gawk
           gawk '{ if (NR == 13) { print $0 " \"js_utility_functions.js\", "; } else { print $0; } }' ./pkg/package.json > temp.json && mv temp.json ./pkg/package.json 
-          gawk -i inplace 'NR==5 { $0 = "const { single_fn, array_fn,  as_json_string, request_set_header, request_set_body, request_set_url, request_get_url, request_headers, request_callbacks, request_get_body_string, response_add_header, response_set_status, response_set_status_text, response_set_body, response_get_headers, response_get_status, response_get_status_text } = require(`./js_utility_functions.js`);" } { print }' ./pkg/layer8_middleware_rs.js  
+          gawk -i inplace 'NR==5 { $0 = "const { single_fn, array_fn,  as_json_string, request_set_header, request_set_body, request_set_url, request_get_url, request_headers, request_callbacks, request_get_body_string, response_add_header, response_set_status, response_set_status_text, response_set_body, response_get_headers, response_get_status, response_get_status_text, response_end } = require(`./js_utility_functions.js`);" } { print }' ./pkg/layer8_middleware_rs.js  
     
       - name: Install npm
         uses: actions/setup-node@v2
