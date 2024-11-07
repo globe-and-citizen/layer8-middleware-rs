@@ -1,8 +1,11 @@
-use std::{cell::Cell, collections::HashMap};
+use std::{
+    cell::{Cell, OnceCell},
+    collections::HashMap,
+    iter::Once,
+};
 
 use base64::{self, engine::general_purpose::URL_SAFE as base64_enc_dec, Engine as _};
 use js_sys::{Array, Function, Object, Uint8Array};
-use mime_sniffer::MimeTypeSniffer;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use serde_json::json;
 use wasm_bindgen::prelude::*;
@@ -17,16 +20,10 @@ use crate::{
     storage::INMEM_STORAGE_INSTANCE,
 };
 
-const VERSION: &str = "1.0.26";
+const VERSION: &str = "0.1.8";
 
 thread_local! {
-    // The hook using this value might outlive the function it gets called in, ok as is
-    // since the wasm runtime is single threaded.
-    static BODY: Cell<String> = {
-        // we can use this is the part of module initialization
-        log(&format!("L8 WASM Middleware version {VERSION} loaded." ));
-        Cell::new("".to_string())
-    }
+    static ModuleInitializedFn: OnceCell<()> = OnceCell::new();
 }
 
 // This imports are necessary, there's some type erasure working in the transformed Rust and or APIs transformed
@@ -40,10 +37,14 @@ extern "C" {
     fn request_set_header(req: &JsValue, key: &str, val: &str);
     fn request_set_body(req: &JsValue, body: JsValue);
     fn request_set_url(req: &JsValue, url: &str);
+    fn request_set_method(req: &JsValue, method: &str);
     fn request_get_url(req: &JsValue) -> JsValue;
     fn request_headers(req: &JsValue) -> JsValue;
     fn request_get_body_string(req: &JsValue) -> JsValue;
-    fn request_callbacks(res: &JsValue, next: &JsValue, symmetric_key: JsValue, mp_jwt: JsValue, respond_callback: JsValue);
+    fn request_callbacks(res: &JsValue, symmetric_key: JsValue, mp_jwt: JsValue, respond_callback: JsValue);
+
+    fn request_add_on_end(req: &JsValue, end: JsValue);
+    fn request_add_on_data(req: &JsValue, data: JsValue);
 
     fn response_add_header(res: &JsValue, key: &str, val: &str);
     fn response_set_status(res: &JsValue, status: u16);
@@ -92,8 +93,12 @@ pub fn middleware_tester(_req: JsValue, _res: JsValue, next: JsValue) {
 #[allow(non_snake_case)]
 #[wasm_bindgen(js_name = tunnel)]
 pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
+    // getting the url
+    log(&format!("URL: {}", request_get_url(&req).as_string().unwrap()));
+
     let headers_map = {
         let headers_object = Object::entries(&js_sys::Object::from(request_headers(&req)));
+        
         let mut map = HashMap::new();
         for entry in headers_object.iter() {
             if entry.is_null() || entry.is_undefined() {
@@ -103,7 +108,18 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
 
             // [key, value]
             let key_val_entry = Array::from(&entry);
-            let key = key_val_entry.get(0).as_string().expect("expected key to be a string; qed");
+            let key = match key_val_entry.get(0).as_string() {
+                Some(val) => val,
+                None => {
+                    console_error(&format!("Error accessing headers"));
+                    // invoking next middleware
+                    if let Err(e) = js_sys::Function::from(next).call0(&JsValue::NULL) {
+                        console_error(&format!("Error invoking next middleware: {e:?}"));
+                    }
+                    return;
+                }
+            };
+
             if let Ok(val) = to_value_from_js_value(&key_val_entry.get(1)) {
                 map.insert(key, val.value);
             }
@@ -118,9 +134,9 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
         || headers_map.get("x-tunnel") == Some(&JsWrapper::Null)
     {
         // invoking next middleware
-        js_sys::Function::from(next)
-            .call0(&JsValue::NULL)
-            .expect("expected next to be a function");
+        if let Err(e) = js_sys::Function::from(next).call0(&JsValue::NULL) {
+            console_error(&format!("Error invoking next middleware: {e:?}"));
+        }
         return;
     }
 
@@ -165,9 +181,9 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
         init_ecdh(&res);
 
         // invoking next middleware
-        js_sys::Function::from(next)
-            .call0(&JsValue::NULL)
-            .expect("expected next to be a function");
+        if let Err(e) = js_sys::Function::from(next).call0(&JsValue::NULL) {
+            console_error(&format!("Error invoking next middleware: {e:?}"));
+        }
         return;
     }
 
@@ -187,9 +203,9 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
                 init_ecdh(&res);
 
                 // invoking next middleware
-                js_sys::Function::from(next)
-                    .call0(&JsValue::NULL)
-                    .expect("expected next to be a function");
+                if let Err(e) = js_sys::Function::from(next).call0(&JsValue::NULL) {
+                    console_error(&format!("Error invoking next middleware: {e:?}"));
+                }
                 return;
             }
         }
@@ -209,30 +225,82 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
                 init_ecdh(&res);
 
                 // invoking next middleware
-                js_sys::Function::from(next)
-                    .call0(&JsValue::NULL)
-                    .expect("expected next to be a function");
+                if let Err(e) = js_sys::Function::from(next).call0(&JsValue::NULL) {
+                    console_error(&format!("Error invoking next middleware: {e:?}"));
+                }
                 return;
             }
         }
     };
 
+    let sym_key = serde_json::to_string(&symmetric_key)
+        .map(|val| JsValue::from_str(&val))
+        .expect("expected symmetric key to be serializable to a string; qed");
+    let jwt = JsValue::from_str(&mp_jwt);
+    let respond_callback_: Closure<dyn Fn(JsValue, JsValue, JsValue, JsValue)> = Closure::new(|res, data, sym_key, jwt| {
+        respond_callback(&res, &data, sym_key, jwt);
+    });
+    request_callbacks(&res, sym_key, jwt, respond_callback_.into_js_value());
+
     // we are not waiting for the `on end event` and `on data event` to be called; still figuring how to work that in in a way that works
-    let body = request_get_body_string(&req);
-    match process_data(
-        &body.as_string().expect("the data was encrypted to the envelope by the interceptor"),
-        &symmetric_key,
-    ) {
+    let body = match request_get_body_string(&req).as_string() {
+        Some(val) => val,
+        None => {
+            console_error("expected body to be a string");
+            // invoking next middleware
+            if let Err(e) = js_sys::Function::from(next).call0(&JsValue::NULL) {
+                console_error(&format!("Error invoking next middleware: {e:?}"));
+            }
+            return;
+        }
+    };
+
+    match process_data(&body, &symmetric_key) {
         Ok(processed_req) => {
             log("Successfully processed data!");
 
-            let mut req_body = serde_json::from_slice::<serde_json::Map<String, serde_json::Value>>(&processed_req.body)
-                .expect("expected req.body to be a valid json object; qed");
+            // propagate the request's original method
+            request_set_method(&req, &processed_req.method);
+
+            let mut req_body = match serde_json::from_slice::<serde_json::Map<String, serde_json::Value>>(&processed_req.body) {
+                Ok(val) => val,
+                Err(err) => {
+                    if !processed_req.body.is_empty() {
+                        console_error(&format!("error decoding body: {}", err));
+                        response_set_status(&res, 500);
+                        response_set_body(&res, b"error decoding body");
+
+                        // invoking next middleware
+                        if let Err(e) = js_sys::Function::from(next).call0(&JsValue::NULL) {
+                            console_error(&format!("Error invoking next middleware: {e:?}"));
+                        }
+                        return;
+                    }
+
+                    serde_json::Map::new()
+                }
+            };
 
             match processed_req.headers.get("content-type") {
                 Some(x) if x.eq("application/layer8.buffer+json") => {
-                    let url_ = get_url_path_from_body(&req_body)
-                        .expect("expected the body to have a __url_path key, this is used to determine the url path for the request");
+                    let url_ = match get_url_path_from_body(&req_body) {
+                        Some(val) => val,
+                        None => {
+                            console_error("expected the body to have a __url_path key, this is used to determine the url path for the request");
+                            response_set_status(&res, 500);
+                            response_set_body(
+                                &res,
+                                b"expected the body to have a __url_path key, this is used to determine the url path for the request",
+                            );
+
+                            // invoking next middleware
+                            if let Err(e) = js_sys::Function::from(next).call0(&JsValue::NULL) {
+                                console_error(&format!("Error invoking next middleware: {e:?}"));
+                            }
+                            return;
+                        }
+                    };
+
                     request_set_url(&req, &url_);
 
                     let form_data = match convert_body_to_form_data(&req_body) {
@@ -241,6 +309,12 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
                             console_error(&format!("error decoding file buffer: {}", err));
                             response_set_status_text(&res, &format!("Could not decode file buffer: {}", err));
                             response_set_status(&res, 500);
+
+                            console_error("expected the body to have a __url_path key, this is used to determine the url path for the request");
+                            // invoking next middleware
+                            if let Err(e) = js_sys::Function::from(next).call0(&JsValue::NULL) {
+                                console_error(&format!("Error invoking next middleware: {e:?}"));
+                            }
                             return;
                         }
                     };
@@ -251,48 +325,66 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
                 }
 
                 _ => {
-                    log("");
-
                     if let Some(val) = req_body.get("__url_path") {
-                        let url_path = val.as_str().expect("expected __url_path to be a string; qed");
-                        let parsed_url = url::Url::parse(url_path).expect("expected the url_path to be a valid url path, check the __url_path key");
+                        let url_path = match val.as_str() {
+                            Some(val) => val,
+                            None => {
+                                console_error("expected the __url_path key to be a string");
+                                response_set_status(&res, 500);
+                                response_set_body(&res, b"expected the __url_path key to be a string");
+
+                                // invoking next middleware
+                                if let Err(e) = js_sys::Function::from(next).call0(&JsValue::NULL) {
+                                    console_error(&format!("Error invoking next middleware: {e:?}"));
+                                }
+                                return;
+                            }
+                        };
+
+                        let mut parsed_url = match url::Url::parse(url_path) {
+                            Ok(val) => val,
+                            Err(err) => {
+                                console_error(&format!("error parsing url: {}", err));
+                                response_set_status(&res, 500);
+                                response_set_body(&res, b"error parsing url");
+
+                                // invoking next middleware
+                                if let Err(e) = js_sys::Function::from(next).call0(&JsValue::NULL) {
+                                    console_error(&format!("Error invoking next middleware: {e:?}"));
+                                }
+                                return;
+                            }
+                        };
 
                         let query_pairs: HashMap<_, _> = parsed_url.query_pairs().into_owned().collect();
-
                         let query = form_urlencoded::Serializer::new(String::new()).extend_pairs(query_pairs.iter()).finish();
-
-                        let mut url_ = url::Url::parse(&request_get_url(&req).as_string().expect("expected the url to be a string; qed"))
-                            .expect("expected the url to be a valid url; qed");
-                        url_.set_query(Some(&query));
-                        request_set_url(&req, url_.as_str());
+                        parsed_url.set_query(Some(&query));
+                        request_set_url(&req, url_path);
 
                         // rm __url_path from body
                         req_body.remove("__url_path").unwrap();
                     }
 
-                    request_set_body(&req, JsValue::from_str(&String::from_utf8_lossy(&processed_req.body)));
+                    if !processed_req.body.is_empty() {
+                        request_set_body(&req, JsValue::from_str(&String::from_utf8_lossy(&processed_req.body)));
+                    }
                 }
             }
         }
         Err(processed_resp) => {
             log("Issue processing data!");
-
             response_set_status(&res, processed_resp.status);
             response_set_status_text(&res, &processed_resp.status_text);
         }
     }
 
-    let sym_key = serde_json::to_string(&symmetric_key)
-        .map(|val| JsValue::from_str(&val))
-        .expect("expected symmetric key to be serializable to a string; qed");
-    let jwt = JsValue::from_str(&mp_jwt);
-    let respond_callback: JsValue = Closure::once_into_js(|res, data, sym_key, jwt| {
-        respond_callback(&res, &data, sym_key, jwt);
-    });
-
-    request_callbacks(&res, &next, sym_key, jwt, respond_callback);
+    // invoking next middleware
+    if let Err(e) = js_sys::Function::from(next).call0(&JsValue::NULL) {
+        console_error(&format!("Error invoking next middleware: {e:?}"));
+    }
 }
-fn respond_callback(res: &JsValue, data: &JsValue, sym_key: JsValue, jwt: JsValue) {
+
+pub fn respond_callback(res: &JsValue, data: &JsValue, sym_key: JsValue, jwt: JsValue) {
     let sym_key = serde_json::from_str::<Jwk>(&sym_key.as_string().expect("expected sym_key to be a string"))
         .expect("expected sym_key to be a valid json object; qed"); // infalliable, we know the data is a valid json object
 
@@ -300,18 +392,16 @@ fn respond_callback(res: &JsValue, data: &JsValue, sym_key: JsValue, jwt: JsValu
     if data.is_string() {
         data_ = data.as_string().expect("expected data to be a string").as_bytes().to_vec();
     } else if data.is_object() {
-        data_ = as_json_string(data).as_bytes().to_vec();
+        data_ = as_json_string(&data).as_bytes().to_vec();
     } else {
         console_error(&format!("expected data to be a string or an object, have: {:?}", data));
     }
 
-    let resp = prepare_data(res, &data_, &sym_key, &jwt.as_string().expect("expected jwt to be a string"));
-
-    response_set_status(res, resp.status);
-    response_set_status_text(res, &resp.status_text);
-
+    let resp = prepare_data(&res, &data_, &sym_key, &jwt.as_string().expect("expected jwt to be a string"));
+    response_set_status(&res, resp.status);
+    response_set_status_text(&res, &resp.status_text);
     for (key, val) in resp.headers {
-        response_add_header(res, &key, &val);
+        response_add_header(&res, &key, &val);
     }
 
     let data = json!({
@@ -319,8 +409,7 @@ fn respond_callback(res: &JsValue, data: &JsValue, sym_key: JsValue, jwt: JsValu
     })
     .to_string();
 
-    // response_set_body(&res, &data.as_bytes());
-    response_end(res, JsValue::from_str(&data));
+    response_end(&res, JsValue::from_str(&data));
 }
 
 #[allow(non_snake_case)]
@@ -350,30 +439,29 @@ pub fn process_multipart(options: JsValue, _fs: JsValue) -> Object {
 #[allow(non_snake_case)]
 #[wasm_bindgen(js_name = _static)]
 pub fn _static(dir: JsValue) -> JsValue {
-    let higher_order_fn: Closure<dyn FnMut(wasm_bindgen::JsValue, wasm_bindgen::JsValue, wasm_bindgen::JsValue) -> JsValue> =
-        Closure::new(move |req, res, any| server_static(req, res, dir.clone(), any));
+    let higher_order_fn: Closure<dyn Fn(wasm_bindgen::JsValue, wasm_bindgen::JsValue, wasm_bindgen::JsValue)> =
+        Closure::new(move |req, res, next| {
+            server_static(&req, &res, dir.clone());
 
-    let higher_order_fn: &JsValue = higher_order_fn.as_ref().unchecked_ref();
-    higher_order_fn.clone()
+            // invoking next middleware
+            if let Err(e) = js_sys::Function::from(next).call0(&JsValue::NULL) {
+                console_error(&format!("Error invoking next middleware: {e:?}"));
+            }
+            return;
+        });
+    higher_order_fn.into_js_value()
 }
 
-fn server_static(req: JsValue, res: JsValue, dir: JsValue, fs: JsValue) -> JsValue {
+fn server_static(req: &JsValue, res: &JsValue, dir: JsValue) {
     let return_encrypted_image = |res: &JsValue| {
         let array_buffer = Uint8Array::from(encrypted_image::ENCRYPTED_IMAGE_DATA);
-
-        js_sys::Reflect::set(res, &"statusCode".into(), &JsValue::from_f64(200.0)).expect("expected res to be a mutable object");
-        js_sys::Reflect::set(res, &"statusMessage".into(), &JsValue::from_str("OK")).expect("expected res to be a mutable object");
-        js_sys::Reflect::set(res, &"Content-Type".into(), &JsValue::from_str("image/png")).expect("expected res to be a mutable object");
-
-        let end = js_sys::Reflect::get(res, &JsValue::from_str("end")).expect("expected res to have an end method");
-        let end = js_sys::Function::from(end);
-        end.call1(&JsValue::NULL, &JsValue::from(array_buffer))
-            .expect("expected end to be a function");
-
-        JsValue::NULL
+        response_set_status(&res, 200);
+        response_set_status_text(&res, "OK");
+        response_add_header(&res, "content-type", "image/png");
+        response_end(res, array_buffer.into());
     };
 
-    let mut headers =
+    let headers =
         to_value_from_js_value(&js_sys::Reflect::get(&req, &JsValue::from_str("headers")).expect("expected req to have a headers property"))
             .expect("expected headers to be a JsValue::Object; qed");
 
@@ -401,215 +489,184 @@ fn server_static(req: JsValue, res: JsValue, dir: JsValue, fs: JsValue) -> JsVal
 
     let mp_jwt = mp_jwt.unwrap_or_default(); // we could stick with Option but things become problematic with closures
 
-    let add_event_listener = js_sys::Function::from(
-        js_sys::Reflect::get(&req, &JsValue::from_str("addEventListener")).expect("expected req to have an addEventListener method"),
-    );
-
-    // data event listener
-    let on_data: &Closure<dyn FnMut(wasm_bindgen::JsValue) -> JsValue> = &Closure::new(|arg| {
-        let val_ = js_sys::Reflect::get(&arg, &JsValue::from_str("toString"))
-            .expect("expected arg to have a toString method")
-            .as_string()
-            .expect("expected toString to return a string");
-
-        BODY.with(|body_| {
-            let mut body = body_.take();
-            body.push_str(&val_);
-            body_.set(body);
-        });
-
-        JsValue::NULL
-    });
+    // let add_event_listener = js_sys::Function::from(
+    //     js_sys::Reflect::get(&req, &JsValue::from_str("addEventListener")).expect("expected req to have an addEventListener method"),
+    // );
 
     // end event listener
-    let on_end: &Closure<dyn FnMut(wasm_bindgen::JsValue) -> JsValue> = &Closure::new(move |_arg| {
-        let body = BODY.with(|body_| body_.take());
+    // let on_end: Closure<dyn FnMut(wasm_bindgen::JsValue) -> JsValue> = {
+    //     let mp_jwt = mp_jwt.clone();
+    //     Closure::new(move |_arg| {
+    //         let body = BODY.with(|body_| body_.take());
 
-        let mut request = match process_data(&body, &symmetric_key) {
-            Ok(request) => request,
-            Err(response) => {
-                js_sys::Reflect::set(&res, &"statusCode".into(), &JsValue::from_f64(response.status as f64))
-                    .expect("expected res to be a mutable object");
-                js_sys::Reflect::set(&res, &"statusMessage".into(), &JsValue::from_str(&response.status_text))
-                    .expect("expected res to be a mutable object");
+    //         let mut request = match process_data(&body, &symmetric_key) {
+    //             Ok(request) => request,
+    //             Err(response) => {
+    //                 js_sys::Reflect::set(&res, &"statusCode".into(), &JsValue::from_f64(response.status as f64))
+    //                     .expect("expected res to be a mutable object");
+    //                 js_sys::Reflect::set(&res, &"statusMessage".into(), &JsValue::from_str(&response.status_text))
+    //                     .expect("expected res to be a mutable object");
 
-                return JsValue::NULL;
-            }
-        };
+    //                 return JsValue::NULL;
+    //             }
+    //         };
 
-        js_sys::Reflect::set(&req, &"method".into(), &JsValue::from_str(&request.method)).expect("expected req to be a mutable object");
+    //         js_sys::Reflect::set(&req, &"method".into(), &JsValue::from_str(&request.method)).expect("expected req to be a mutable object");
 
-        for (header_key, header_val) in &request.headers {
-            headers
-                .set(&header_key.clone(), JsWrapper::String(header_val.clone()))
-                .expect("expected headers to be a JsValue::Object; qed");
-        }
+    //         for (header_key, header_val) in &request.headers {
+    //             headers
+    //                 .set(&header_key.clone(), JsWrapper::String(header_val.clone()))
+    //                 .expect("expected headers to be a JsValue::Object; qed");
+    //         }
 
-        if !request.headers.contains_key("Content-Type") {
-            request.headers.insert("Content-Type".to_string(), "application/json".to_string());
-        }
+    //         if !request.headers.contains_key("Content-Type") {
+    //             request.headers.insert("Content-Type".to_string(), "application/json".to_string());
+    //         }
 
-        let mut body =
-            serde_json::from_slice::<HashMap<String, serde_json::Value>>(&request.body).expect("expected req.body to be a valid json object");
+    //         let mut body =
+    //             serde_json::from_slice::<HashMap<String, serde_json::Value>>(&request.body).expect("expected req.body to be a valid json object");
 
-        if let Some(url_path) = body.get("__url_path") {
-            let url_path = url_path.as_str().expect("expected url_path to be a string");
-            let parsed_url = url::Url::parse(url_path).expect("expected the url_path to be a valid url path, check the __url_path key");
-            let query_pairs: HashMap<_, _> = parsed_url.query_pairs().into_owned().collect();
+    //         if let Some(url_path) = body.get("__url_path") {
+    //             let url_path = url_path.as_str().expect("expected url_path to be a string");
+    //             let parsed_url = url::Url::parse(url_path).expect("expected the url_path to be a valid url path, check the __url_path key");
+    //             let query_pairs: HashMap<_, _> = parsed_url.query_pairs().into_owned().collect();
 
-            let query = js_sys::Reflect::get(&req, &JsValue::from_str("query")).expect("expected req to have a query property");
-            for (key, val) in query_pairs {
-                js_sys::Reflect::set(&query, &JsValue::from_str(&key), &JsValue::from_str(&val)).expect("expected req to be a mutable object");
-            }
-            body.remove("__url_path").unwrap();
-        }
+    //             let query = js_sys::Reflect::get(&req, &JsValue::from_str("query")).expect("expected req to have a query property");
+    //             for (key, val) in query_pairs {
+    //                 js_sys::Reflect::set(&query, &JsValue::from_str(&key), &JsValue::from_str(&val)).expect("expected req to be a mutable object");
+    //             }
+    //             body.remove("__url_path").unwrap();
+    //         }
 
-        // getting the file path
-        let path = {
-            let mut path = js_sys::Reflect::get(&req, &JsValue::from_str("url"))
-                .expect("expected req to have a url property")
-                .as_string()
-                .expect("expected url to be a string");
-            if path.eq("/") {
-                path = "/index.html".to_string();
-            }
+    //         // getting the file path
+    //         let path = {
+    //             let mut path = js_sys::Reflect::get(&req, &JsValue::from_str("url"))
+    //                 .expect("expected req to have a url property")
+    //                 .as_string()
+    //                 .expect("expected url to be a string");
+    //             if path.eq("/") {
+    //                 path = "/index.html".to_string();
+    //             }
 
-            path
-        };
+    //             path
+    //         };
 
-        let path = match url::form_urlencoded::parse(path.as_bytes()).next() {
-            Some((key, val)) => format!("{key}={val}"), // validate!
-            None => {
-                js_sys::Reflect::set(&res, &"statusCode".into(), &JsValue::from_f64(500.0)).expect("expected res to be a mutable object");
-                js_sys::Reflect::set(&res, &"statusMessage".into(), &JsValue::from_str("Internal Server Error"))
-                    .expect("expected res to be a mutable object");
+    //         let path = match url::form_urlencoded::parse(path.as_bytes()).next() {
+    //             Some((key, val)) => format!("{key}={val}"), // validate!
+    //             None => {
+    //                 js_sys::Reflect::set(&res, &"statusCode".into(), &JsValue::from_f64(500.0)).expect("expected res to be a mutable object");
+    //                 js_sys::Reflect::set(&res, &"statusMessage".into(), &JsValue::from_str("Internal Server Error"))
+    //                     .expect("expected res to be a mutable object");
 
-                let end = js_sys::Reflect::get(&res, &JsValue::from_str("end")).expect("expected res to have an end method");
-                let end = js_sys::Function::from(end);
-                end.call1(&JsValue::NULL, &JsValue::from_str("500 Internal Server Error"))
-                    .expect("expected end to be a function");
+    //                 let end = js_sys::Reflect::get(&res, &JsValue::from_str("end")).expect("expected res to have an end method");
+    //                 let end = js_sys::Function::from(end);
+    //                 end.call1(&JsValue::NULL, &JsValue::from_str("500 Internal Server Error_2"))
+    //                     .expect("expected end to be a function");
 
-                return JsValue::NULL;
-            }
-        };
+    //                 todo!(); // resytucvure o return on error
+    //             }
+    //         };
 
-        let path_ = dir.as_string().expect("expected the dir to be a string; qed") + &path;
+    //         // let path_ = dir.as_string().expect("expected the dir to be a string; qed") + &path;
 
-        let exists_sync = js_sys::Reflect::get(&fs, &JsValue::from_str("existsSync")).expect("expected fs to have an existsSync method");
-        let exists_sync = js_sys::Function::from(exists_sync);
-        let exists = exists_sync
-            .call1(&JsValue::NULL, &JsValue::from_str(&path_))
-            .expect("expected existsSync to be a function")
-            .as_bool()
-            .expect("expected existsSync to return a boolean");
+    //         // let exists_sync = js_sys::Reflect::get(&fs, &JsValue::from_str("existsSync")).expect("expected fs to have an existsSync method");
+    //         // // let exists_sync = js_sys::Function::from(exists_sync);
+    //         // let exists = exists_sync
+    //         //     .call1(&JsValue::NULL, &JsValue::from_str(&path_))
+    //         //     .expect("expected existsSync to be a function")
+    //         //     .as_bool()
+    //         //     .expect("expected existsSync to return a boolean");
 
-        if !exists {
-            js_sys::Reflect::set(&res, &"statusCode".into(), &JsValue::from_f64(404.0)).expect("expected res to be a mutable object");
-            js_sys::Reflect::set(&res, &"statusMessage".into(), &JsValue::from_str("Not Found")).expect("expected res to be a mutable object");
+    //         if !false {
+    //             js_sys::Reflect::set(&res, &"statusCode".into(), &JsValue::from_f64(404.0)).expect("expected res to be a mutable object");
+    //             js_sys::Reflect::set(&res, &"statusMessage".into(), &JsValue::from_str("Not Found")).expect("expected res to be a mutable object");
 
-            let end = js_sys::Reflect::get(&res, &JsValue::from_str("end")).expect("expected res to have an end method");
-            let end = js_sys::Function::from(end);
-            end.call1(&JsValue::NULL, &JsValue::from_str(&format!("Cannot GET {path}")))
-                .expect("expected end to be a function");
+    //             let end = js_sys::Reflect::get(&res, &JsValue::from_str("end")).expect("expected res to have an end method");
+    //             let end = js_sys::Function::from(end);
+    //             end.call1(&JsValue::NULL, &JsValue::from_str(&format!("Cannot GET {path}")))
+    //                 .expect("expected end to be a function");
 
-            return JsValue::NULL;
-        }
+    //             todo!()
+    //         }
 
-        // return the default EncryptedImageData if the request is not a layer8 request
-        if headers.is_null() || headers.is_undefined() || {
-            if let Ok(val) = headers.get("x-tunnel") {
-                if let Some(val) = val {
-                    *val == JsWrapper::Undefined || *val == JsWrapper::Null
-                } else {
-                    true
-                };
-            }
-            true
-        } {
-            return return_encrypted_image(&res);
-        }
+    //         // return the default EncryptedImageData if the request is not a layer8 request
+    //         if headers.is_null() || headers.is_undefined() || {
+    //             if let Ok(val) = headers.get("x-tunnel") {
+    //                 if let Some(val) = val {
+    //                     *val == JsWrapper::Undefined || *val == JsWrapper::Null
+    //                 } else {
+    //                     true
+    //                 };
+    //             }
+    //             true
+    //         } {
+    //             return_encrypted_image(&res);
+    //         }
 
-        let data = {
-            let buff = read_file(&path_).expect("expected file to be read");
-            let array_buffer = buff.obj.dyn_ref::<js_sys::ArrayBuffer>().unwrap();
-            let array = js_sys::Uint8Array::new(array_buffer);
-            array.to_vec()
-        };
+    //         let data = {
+    //             // let buff = read_file(&path_).expect("expected file to be read");
+    //             // let array_buffer = buff.obj.dyn_ref::<js_sys::ArrayBuffer>().unwrap();
+    //             // let array = js_sys::Uint8Array::new(array_buffer);
+    //             // array.to_vec()
 
-        let mime_type = data.sniff_mime_type().unwrap_or("application/octet-stream"); // TODO?
-        let js_res = Response {
-            body: data.clone(),
-            status: 200,
-            status_text: "OK".to_string(),
-            headers: Vec::from([("Content-Type".to_string(), mime_type.to_string())]),
-        };
+    //             Vec::new() // todo1()
+    //         };
 
-        // encrypt the file
-        let encrypted = match symmetric_key
-            .symmetric_encrypt(&serde_json::to_vec(&js_res).expect("expected the response to be serializable to a valid json object; qed"))
-        {
-            Ok(val) => val,
-            Err(err) => {
-                console_error(&format!("error encrypting file: {err}"));
+    //         let mime_type = data.sniff_mime_type().unwrap_or("application/octet-stream"); // TODO?
+    //         let js_res = Response {
+    //             body: data.clone(),
+    //             status: 200,
+    //             status_text: "OK".to_string(),
+    //             headers: Vec::from([("Content-Type".to_string(), mime_type.to_string())]),
+    //         };
 
-                js_sys::Reflect::set(&res, &"statusCode".into(), &JsValue::from_f64(500.0)).expect("expected res to be a mutable object");
-                js_sys::Reflect::set(&res, &"statusMessage".into(), &JsValue::from_str("Internal Server Error"))
-                    .expect("expected res to be a mutable object");
+    //         // encrypt the file
+    //         let encrypted = match symmetric_key
+    //             .symmetric_encrypt(&serde_json::to_vec(&js_res).expect("expected the response to be serializable to a valid json object; qed"))
+    //         {
+    //             Ok(val) => val,
+    //             Err(err) => {
+    //                 console_error(&format!("error encrypting file: {err}"));
 
-                let end = js_sys::Reflect::get(&res, &JsValue::from_str("end")).expect("expected res to have an end method");
-                let end = js_sys::Function::from(end);
-                end.call1(&JsValue::NULL, &JsValue::from_str("500 Internal Server Error"))
-                    .expect("expected end to be a function");
+    //                 js_sys::Reflect::set(&res, &"statusCode".into(), &JsValue::from_f64(500.0)).expect("expected res to be a mutable object");
+    //                 js_sys::Reflect::set(&res, &"statusMessage".into(), &JsValue::from_str("Internal Server Error"))
+    //                     .expect("expected res to be a mutable object");
 
-                return JsValue::NULL;
-            }
-        };
+    //                 let end = js_sys::Reflect::get(&res, &JsValue::from_str("end")).expect("expected res to have an end method");
+    //                 let end = js_sys::Function::from(end);
+    //                 end.call1(&JsValue::NULL, &JsValue::from_str("500 Internal Server Error_1"))
+    //                     .expect("expected end to be a function");
 
-        // sending the response
-        js_sys::Reflect::set(&res, &"statusCode".into(), &JsValue::from_f64(js_res.status as f64)).expect("expected res to be a mutable object");
-        js_sys::Reflect::set(&res, &"statusMessage".into(), &JsValue::from_str(&js_res.status_text)).expect("expected res to be a mutable object");
+    //                 return JsValue::NULL;
+    //             }
+    //         };
 
-        let set = js_sys::Reflect::get(&res, &JsValue::from_str("set")).unwrap();
-        let set = js_sys::Function::from(set);
-        set.call2(&JsValue::NULL, &JsValue::from_str("Content-Type"), &JsValue::from_str("application/json"))
-            .expect("expected set to be a function");
+    //         // sending the response
+    //         js_sys::Reflect::set(&res, &"statusCode".into(), &JsValue::from_f64(js_res.status as f64)).expect("expected res to be a mutable object");
+    //         js_sys::Reflect::set(&res, &"statusMessage".into(), &JsValue::from_str(&js_res.status_text))
+    //             .expect("expected res to be a mutable object");
 
-        set.call2(&JsValue::NULL, &JsValue::from_str("mp-JWT"), &JsValue::from_str(&mp_jwt))
-            .expect("expected set to be a function");
+    //         let set = js_sys::Reflect::get(&res, &JsValue::from_str("set")).unwrap();
+    //         let set = js_sys::Function::from(set);
+    //         set.call2(&JsValue::NULL, &JsValue::from_str("Content-Type"), &JsValue::from_str("application/json"))
+    //             .expect("expected set to be a function");
 
-        let end = js_sys::Reflect::get(&res, &JsValue::from_str("end")).unwrap();
-        let end = js_sys::Function::from(end);
+    //         set.call2(&JsValue::NULL, &JsValue::from_str("mp-JWT"), &JsValue::from_str(&mp_jwt))
+    //             .expect("expected set to be a function");
 
-        let data = Object::new();
-        js_sys::Reflect::set(&data, &"data".into(), &JsValue::from_str(&base64_enc_dec.encode(&encrypted)))
-            .expect("expected data to be a mutable object");
+    //         let end = js_sys::Reflect::get(&res, &JsValue::from_str("end")).unwrap();
+    //         let end = js_sys::Function::from(end);
 
-        end.call1(&JsValue::NULL, &JsValue::from(data)).expect("expected end to be a function");
+    //         let data = Object::new();
+    //         js_sys::Reflect::set(&data, &"data".into(), &JsValue::from_str(&base64_enc_dec.encode(&encrypted)))
+    //             .expect("expected data to be a mutable object");
 
-        JsValue::NULL
-    });
+    //         end.call1(&JsValue::NULL, &JsValue::from(data)).expect("expected end to be a function");
 
-    let on_end = on_end.as_ref().unchecked_ref();
-    let on_data = on_data.as_ref().unchecked_ref();
-    {
-        if let Err(err) = add_event_listener.call1(&JsValue::from_str("data"), on_data) {
-            console_error(
-                &err.as_string()
-                    .unwrap_or(" Error: Failed to add event listener to request object.".to_string()),
-            );
-            return JsValue::NULL;
-        }
-
-        if let Err(err) = add_event_listener.call1(&JsValue::from_str("end"), on_end) {
-            console_error(
-                &err.as_string()
-                    .unwrap_or(" Error: Failed to add event listener to request object.".to_string()),
-            );
-            return JsValue::NULL;
-        }
-    }
-
-    JsValue::NULL
+    //         JsValue::NULL
+    //     })
+    // };
+    // request_add_on_end(&req, on_end.into_js_value());
 }
 
 fn get_url_path_from_body(req_body: &serde_json::Map<String, serde_json::Value>) -> Option<String> {
@@ -917,8 +974,6 @@ mod tests {
 
     #[wasm_bindgen_test]
     fn test_process_multipart() {
-        // let worker_handle = Worker::new("./worker.js").unwrap();
-
         let options = Object::new();
         js_sys::Reflect::set(&options, &"dest".into(), &JsValue::from_str("/tmp")).unwrap();
         let res = super::process_multipart(JsValue::from(options), JsValue::NULL);

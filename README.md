@@ -4,7 +4,7 @@
 
 ### Prerequisites
 
-1. Install Node.js V22.x.x
+1. Install Node.js v22.x.x
 2. Install Rust: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
 3. Install wasm-pack: `cargo install wasm-pack`
 
@@ -23,3 +23,7 @@ The command below will build the project locally. However, the project ships as 
 ```bash
 wasm-pack build --target nodejs --release
 ```
+
+## Gotchas
+
+1. The middleware expects request data to already be aggregated, call an aggregator middleware like `app.use(express.json())` before registering this middleware.
