@@ -1,8 +1,4 @@
-use std::{
-    cell::{Cell, OnceCell},
-    collections::HashMap,
-    iter::Once,
-};
+use std::collections::HashMap;
 
 use base64::{self, engine::general_purpose::URL_SAFE as base64_enc_dec, Engine as _};
 use js_sys::{Array, Function, Object, Uint8Array};
@@ -14,17 +10,10 @@ use web_sys::{File, FormData};
 use layer8_interceptor_rs::{crypto::Jwk, types::Response};
 
 use crate::{
-    encrypted_image,
     internals::{self, process_data::process_data},
     js_wrapper::{self, to_value_from_js_value, JsWrapper, Type, Value},
     storage::INMEM_STORAGE_INSTANCE,
 };
-
-const VERSION: &str = "0.1.8";
-
-thread_local! {
-    static ModuleInitializedFn: OnceCell<()> = OnceCell::new();
-}
 
 // This imports are necessary, there's some type erasure working in the transformed Rust and or APIs transformed
 // are not ported 1:1 from JS to Rust
@@ -98,7 +87,7 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
 
     let headers_map = {
         let headers_object = Object::entries(&js_sys::Object::from(request_headers(&req)));
-        
+
         let mut map = HashMap::new();
         for entry in headers_object.iter() {
             if entry.is_null() || entry.is_undefined() {
@@ -111,7 +100,7 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
             let key = match key_val_entry.get(0).as_string() {
                 Some(val) => val,
                 None => {
-                    console_error(&format!("Error accessing headers"));
+                    console_error("Error accessing headers");
                     // invoking next middleware
                     if let Err(e) = js_sys::Function::from(next).call0(&JsValue::NULL) {
                         console_error(&format!("Error invoking next middleware: {e:?}"));
@@ -392,16 +381,16 @@ pub fn respond_callback(res: &JsValue, data: &JsValue, sym_key: JsValue, jwt: Js
     if data.is_string() {
         data_ = data.as_string().expect("expected data to be a string").as_bytes().to_vec();
     } else if data.is_object() {
-        data_ = as_json_string(&data).as_bytes().to_vec();
+        data_ = as_json_string(data).as_bytes().to_vec();
     } else {
         console_error(&format!("expected data to be a string or an object, have: {:?}", data));
     }
 
-    let resp = prepare_data(&res, &data_, &sym_key, &jwt.as_string().expect("expected jwt to be a string"));
-    response_set_status(&res, resp.status);
-    response_set_status_text(&res, &resp.status_text);
+    let resp = prepare_data(res, &data_, &sym_key, &jwt.as_string().expect("expected jwt to be a string"));
+    response_set_status(res, resp.status);
+    response_set_status_text(res, &resp.status_text);
     for (key, val) in resp.headers {
-        response_add_header(&res, &key, &val);
+        response_add_header(res, &key, &val);
     }
 
     let data = json!({
@@ -409,7 +398,7 @@ pub fn respond_callback(res: &JsValue, data: &JsValue, sym_key: JsValue, jwt: Js
     })
     .to_string();
 
-    response_end(&res, JsValue::from_str(&data));
+    response_end(res, JsValue::from_str(&data));
 }
 
 #[allow(non_snake_case)]
@@ -447,47 +436,46 @@ pub fn _static(dir: JsValue) -> JsValue {
             if let Err(e) = js_sys::Function::from(next).call0(&JsValue::NULL) {
                 console_error(&format!("Error invoking next middleware: {e:?}"));
             }
-            return;
         });
     higher_order_fn.into_js_value()
 }
 
-fn server_static(req: &JsValue, res: &JsValue, dir: JsValue) {
-    let return_encrypted_image = |res: &JsValue| {
-        let array_buffer = Uint8Array::from(encrypted_image::ENCRYPTED_IMAGE_DATA);
-        response_set_status(&res, 200);
-        response_set_status_text(&res, "OK");
-        response_add_header(&res, "content-type", "image/png");
-        response_end(res, array_buffer.into());
-    };
+fn server_static(_req: &JsValue, _res: &JsValue, _dir: JsValue) {
+    // let return_encrypted_image = |res: &JsValue| {
+    //     let array_buffer = Uint8Array::from(encrypted_image::ENCRYPTED_IMAGE_DATA);
+    //     response_set_status(res, 200);
+    //     response_set_status_text(res, "OK");
+    //     response_add_header(res, "content-type", "image/png");
+    //     response_end(res, array_buffer.into());
+    // };
 
-    let headers =
-        to_value_from_js_value(&js_sys::Reflect::get(&req, &JsValue::from_str("headers")).expect("expected req to have a headers property"))
-            .expect("expected headers to be a JsValue::Object; qed");
+    // let headers =
+    //     to_value_from_js_value(&js_sys::Reflect::get(&req, &JsValue::from_str("headers")).expect("expected req to have a headers property"))
+    //         .expect("expected headers to be a JsValue::Object; qed");
 
-    let client_uuid = match headers.get("x-client-uuid") {
-        Ok(Some(val)) => val,
-        Ok(None) => return return_encrypted_image(&res),
-        Err(err) => {
-            console_error(&err);
-            return return_encrypted_image(&res);
-        }
-    };
+    // let client_uuid = match headers.get("x-client-uuid") {
+    //     Ok(Some(val)) => val,
+    //     Ok(None) => return return_encrypted_image(&res),
+    //     Err(err) => {
+    //         console_error(&err);
+    //         return return_encrypted_image(&res);
+    //     }
+    // };
 
-    let (mp_jwt, symmetric_key) = INMEM_STORAGE_INSTANCE.with(|val| {
-        let val_ = val.take();
-        val.replace(val_.clone());
-        let client_uuid = client_uuid.to_string().expect("expected client_uuid to be a string; qed");
+    // let (mp_jwt, symmetric_key) = INMEM_STORAGE_INSTANCE.with(|val| {
+    //     let val_ = val.take();
+    //     val.replace(val_.clone());
+    //     let client_uuid = client_uuid.to_string().expect("expected client_uuid to be a string; qed");
 
-        (val_.jwts.get(&client_uuid).cloned(), val_.keys.get(&client_uuid).cloned())
-    });
+    //     (val_.jwts.get(&client_uuid).cloned(), val_.keys.get(&client_uuid).cloned())
+    // });
 
-    let symmetric_key = match symmetric_key {
-        Some(val) => val,
-        None => return return_encrypted_image(&res),
-    };
+    // let symmetric_key = match symmetric_key {
+    //     Some(val) => val,
+    //     None => return return_encrypted_image(&res),
+    // };
 
-    let mp_jwt = mp_jwt.unwrap_or_default(); // we could stick with Option but things become problematic with closures
+    // let mp_jwt = mp_jwt.unwrap_or_default(); // we could stick with Option but things become problematic with closures
 
     // let add_event_listener = js_sys::Function::from(
     //     js_sys::Reflect::get(&req, &JsValue::from_str("addEventListener")).expect("expected req to have an addEventListener method"),

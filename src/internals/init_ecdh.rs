@@ -89,6 +89,7 @@ pub fn initialize_ecdh(headers: Value, inmem_storage: &mut InMemStorage) -> Resu
 
     // adding the shared secret to the keys
     inmem_storage.keys.add(client_uuid, shared_secret.clone());
+
     let b64_shared_secret = shared_secret.export_as_base64();
     let b64_pub_key = inmem_storage.ecdh.get_public_key().export_as_base64();
 
