@@ -5,7 +5,7 @@ function single_fn (dest) {
     dest = 'tmp'
   }
 
-  return function (req, _res, next, name) {
+  return function (req, _res, next) {
     // if the destination directory does not exist, create it
     if (!fs.existsSync(dest)) {
       fs.mkdirSync(dest, { recursive: true })
@@ -58,7 +58,7 @@ function array_fn (dest) {
     dest = 'tmp'
   }
 
-  return function (req, _res, next, name) {
+  return function (req, _res, next) {
     if (!fs.existsSync(dest)) {
       fs.mkdirSync(dest, { recursive: true })
     }
@@ -99,6 +99,10 @@ function array_fn (dest) {
   }
 }
 
+function path_exists (path) {
+  return fs.existsSync(path)
+}
+
 function request_set_url (req, url) {
   req.url = url
 }
@@ -111,12 +115,16 @@ function request_set_body (req, body) {
   req.body = body
 }
 
-function request_set_method(req, method) {
-    req.method = method
+function request_set_method (req, method) {
+  req.method = method
 }
 
 function request_get_url (req) {
   return req.url
+}
+
+function request_get_method (req) {
+  return req.method
 }
 
 function request_headers (req) {
@@ -137,12 +145,8 @@ function request_callbacks (res, sym_key, mp_jwt, respond_callback) {
   }
 }
 
-function request_add_on_end(req, end){
-    req.on("end", end)
-}
-
-function request_add_on_data(req, data){
-    req.on("data", data)
+function request_add_on_end (req, end) {
+  req.on('end', end)
 }
 
 function as_json_string (obj) {
@@ -181,9 +185,16 @@ function response_end (res, data) {
   res.end(data)
 }
 
+// FIXME: hacked around and settled on this
+function get_url_path(js_str) {
+    const val = JSON.parse(js_str);    
+  return  JSON.parse(val).__url_path
+}
+
 module.exports = {
   single_fn,
   array_fn,
+  path_exists,
   as_json_string,
   request_set_header,
   request_set_body,
@@ -194,13 +205,15 @@ module.exports = {
   request_callbacks,
   request_get_body_string,
   request_add_on_end,
-  request_add_on_data,
   response_add_header,
   response_set_status,
   response_set_status_text,
   response_set_body,
   response_get_headers,
+  request_get_method,
   response_get_status,
   response_get_status_text,
-  response_end
+  response_end,
+
+  get_url_path
 }

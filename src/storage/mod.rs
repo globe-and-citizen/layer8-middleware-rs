@@ -1,6 +1,6 @@
 use std::{cell::Cell, collections::HashMap};
 
-use layer8_interceptor_rs::crypto::{generate_key_pair, Jwk, KeyUse};
+use layer8_primitives::crypto::{generate_key_pair, Jwk, KeyUse};
 
 // The module runs in the single threaded wasm environment, ok to use thread_local
 thread_local! {

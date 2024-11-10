@@ -26,4 +26,6 @@ wasm-pack build --target nodejs --release
 
 ## Gotchas
 
-1. The middleware expects request data to already be aggregated, call an aggregator middleware like `app.use(express.json())` before registering this middleware.
+1. The middleware expects request data to already be aggregated, call an aggregator middleware like `app.use(express.json({ limit: '100mb' }))` before registering this middleware.
+
+this is s

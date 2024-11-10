@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use layer8_interceptor_rs::crypto::base64_to_jwk;
+use layer8_primitives::crypto::base64_to_jwk;
 
 use crate::{
     js_wrapper::{JsWrapper, Type, Value},
@@ -122,7 +122,7 @@ mod tests {
     use wasm_bindgen::{prelude::*, JsValue};
     use wasm_bindgen_test::*;
 
-    use layer8_interceptor_rs::crypto::{generate_key_pair, KeyUse};
+    use layer8_primitives::crypto::{generate_key_pair, KeyUse};
 
     use super::initialize_ecdh;
     use crate::{
@@ -130,12 +130,14 @@ mod tests {
         storage::{Ecdh, InMemStorage},
     };
 
+    #[allow(dead_code)]
     #[derive(Debug, Serialize)]
     struct StandardClaims {
         expires_at: u64,
     }
 
-    pub fn generate_standard_token(secret_key: &str, time_now: u64) -> Result<String, String> {
+    #[allow(dead_code)]
+    fn generate_standard_token(secret_key: &str, time_now: u64) -> Result<String, String> {
         let claims = StandardClaims {
             expires_at: time_now + (60 * 60 * 24 * 7),
         };
@@ -150,6 +152,7 @@ mod tests {
         pub fn now() -> f64;
     }
 
+    #[allow(dead_code)]
     #[wasm_bindgen_test]
     fn test_initialize_ecdh() {
         let (server_pri_key, server_pub_key) = generate_key_pair(KeyUse::Ecdh).unwrap();

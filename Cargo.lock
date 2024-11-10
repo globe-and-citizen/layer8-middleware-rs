@@ -295,7 +295,7 @@ version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e13624c2627564efccf4934284bdd98cbaa14e79b0b5a141218e507b3a823456"
 dependencies = [
- "percent-encoding",
+ "percent-encoding 2.3.1",
 ]
 
 [[package]]
@@ -648,6 +648,17 @@ dependencies = [
 
 [[package]]
 name = "idna"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "38f09e0f0b1fb55fdee1f17470ad800da77af5186a1a76c026b679358b7e844e"
+dependencies = [
+ "matches",
+ "unicode-bidi",
+ "unicode-normalization",
+]
+
+[[package]]
+name = "idna"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "686f825264d630750a544639377bae737628043f20d38bbc029e8f29ea968a7e"
@@ -723,43 +734,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "layer8-interceptor-rs"
-version = "0.0.1"
-source = "git+https://github.com/muse254/layer8-interceptor-rs?branch=main#85a1699db300c9053f2ead4140fe1320957d8121"
-dependencies = [
- "aes-gcm",
- "base64 0.22.1",
- "getrandom",
- "js-sys",
- "lazy_static",
- "rand",
- "reqwest",
- "secp256k1",
- "serde",
- "serde-wasm-bindgen",
- "serde_json",
- "url",
- "uuid",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
-]
-
-[[package]]
 name = "layer8-middleware-rs"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "base64 0.22.1",
  "form_urlencoded",
  "js-sys",
  "jsonwebtoken",
- "layer8-interceptor-rs",
- "lazy_static",
+ "layer8-primitives",
+ "mime-sniffer",
  "rand",
  "serde",
- "serde-wasm-bindgen",
  "serde_json",
- "url",
+ "url 2.5.3",
  "uuid",
  "wasm-bindgen",
  "wasm-bindgen-test",
@@ -767,10 +754,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "lazy_static"
-version = "1.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
+name = "layer8-primitives"
+version = "0.1.0"
+source = "git+https://github.com/muse254/layer8-primitives-rs.git?branch=main#3a60a3ddd0477dc09f174c0a7c6a912928322199"
+dependencies = [
+ "aes-gcm",
+ "base64 0.22.1",
+ "rand",
+ "reqwest",
+ "secp256k1",
+ "serde",
+ "serde_json",
+ "url 2.5.3",
+ "uuid",
+]
 
 [[package]]
 name = "libc"
@@ -797,6 +794,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a7a70ba024b9dc04c27ea2f0c0548feb474ec5c54bba33a7f72f873a39d07b24"
 
 [[package]]
+name = "matches"
+version = "0.1.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2532096657941c2fea9c289d370a250971c689d4f143798ff67113ec042024a5"
+
+[[package]]
 name = "memchr"
 version = "2.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -807,6 +810,16 @@ name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
+
+[[package]]
+name = "mime-sniffer"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e98f7cfbbaf64674624e2aa35327d75e3de8e4d1b2555ef70dcf0c107a95490"
+dependencies = [
+ "mime",
+ "url 1.7.2",
+]
 
 [[package]]
 name = "minicov"
@@ -967,6 +980,12 @@ dependencies = [
 
 [[package]]
 name = "percent-encoding"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "31010dd2e1ac33d5b46a5b413495239882813e0369f8ed8a5e266f173602f831"
+
+[[package]]
+name = "percent-encoding"
 version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3148f5046208a5d56bcfc03053e3ca6334e51da8dfb19b6cdc8b306fae3283e"
@@ -1089,7 +1108,7 @@ dependencies = [
  "mime",
  "native-tls",
  "once_cell",
- "percent-encoding",
+ "percent-encoding 2.3.1",
  "pin-project-lite",
  "rustls-pemfile",
  "serde",
@@ -1100,7 +1119,7 @@ dependencies = [
  "tokio",
  "tokio-native-tls",
  "tower-service",
- "url",
+ "url 2.5.3",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -1260,17 +1279,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f55c3193aca71c12ad7890f1785d2b73e1b9f63a0bbc353c08ef26fe03fc56b5"
 dependencies = [
  "serde_derive",
-]
-
-[[package]]
-name = "serde-wasm-bindgen"
-version = "0.6.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8302e169f0eddcc139c70f139d19d6467353af16f9fce27e8c30158036a1e16b"
-dependencies = [
- "js-sys",
- "serde",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -1496,6 +1504,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "tinyvec"
+version = "1.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "445e881f4f6d382d5f27c034e25eb92edd7c784ceab92a0937db7f2e9471b938"
+dependencies = [
+ "tinyvec_macros",
+]
+
+[[package]]
+name = "tinyvec_macros"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
+
+[[package]]
 name = "tokio"
 version = "1.41.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1582,10 +1605,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42ff0bf0c66b8238c6f3b578df37d0b7848e55df8577b3f74f92a69acceeb825"
 
 [[package]]
+name = "unicode-bidi"
+version = "0.3.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5ab17db44d7388991a428b2ee655ce0c212e862eff1768a455c58f9aad6e7893"
+
+[[package]]
 name = "unicode-ident"
 version = "1.0.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e91b56cd4cadaeb79bbf1a5645f6b4f8dc5bde8834ad5894a8db35fda9efa1fe"
+
+[[package]]
+name = "unicode-normalization"
+version = "0.1.24"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5033c97c4262335cded6d6fc3e5c18ab755e1a3dc96376350f3d8e9f009ad956"
+dependencies = [
+ "tinyvec",
+]
 
 [[package]]
 name = "universal-hash"
@@ -1605,13 +1643,24 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
 name = "url"
+version = "1.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd4e7c0d531266369519a4aa4f399d748bd37043b00bde1e4ff1f60a120b355a"
+dependencies = [
+ "idna 0.1.5",
+ "matches",
+ "percent-encoding 1.0.1",
+]
+
+[[package]]
+name = "url"
 version = "2.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d157f1b96d14500ffdc1f10ba712e780825526c03d9a49b4d0324b0d9113ada"
 dependencies = [
  "form_urlencoded",
- "idna",
- "percent-encoding",
+ "idna 1.0.3",
+ "percent-encoding 2.3.1",
 ]
 
 [[package]]

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use base64::{self, engine::general_purpose::URL_SAFE as base64_enc_dec, Engine as _};
 
-use layer8_interceptor_rs::{
+use layer8_primitives::{
     crypto::Jwk,
     types::{Request, Response},
 };
@@ -50,6 +50,17 @@ pub(crate) fn process_data(raw_data: &str, key: &Jwk) -> Result<Request, Respons
     })
 }
 
+#[derive(Deserialize)]
+pub struct UrlPath {
+    pub _type: TypeInformation,
+}
+
+#[derive(Deserialize)]
+pub struct TypeInformation {
+    pub _type: String,
+    pub value: String,
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -58,7 +69,7 @@ mod tests {
     use serde_json::json;
     use wasm_bindgen_test::*;
 
-    use layer8_interceptor_rs::{
+    use layer8_primitives::{
         crypto::{generate_key_pair, Jwk, KeyUse},
         types::Request,
     };

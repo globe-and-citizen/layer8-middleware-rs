@@ -1,2 +1,2 @@
-pub mod init_ecdh;
-pub mod process_data;
+pub(crate) mod init_ecdh;
+pub(crate) mod process_data;
