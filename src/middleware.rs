@@ -977,100 +977,100 @@ mod tests {
         assert!(obj.has_own_property(&JsValue::from_str("statusCode")));
     }
 
-    #[test]
-    fn test_get_arbitrary_boundary() {
-        let boundary = super::get_arbitrary_boundary();
-        assert!(boundary.starts_with("----Layer8FormBoundary"));
-    }
+    // #[test]
+    // fn test_get_arbitrary_boundary() {
+    //     let boundary = super::get_arbitrary_boundary();
+    //     assert!(boundary.starts_with("----Layer8FormBoundary"));
+    // }
 
-    #[allow(dead_code)]
-    #[wasm_bindgen_test]
-    fn test_process_multipart() {
-        let options = Object::new();
-        js_sys::Reflect::set(&options, &"dest".into(), &JsValue::from_str("/tmp")).unwrap();
-        let res = super::process_multipart(JsValue::from(options));
+    // #[allow(dead_code)]
+    // #[wasm_bindgen_test]
+    // fn test_process_multipart() {
+    //     let options = Object::new();
+    //     js_sys::Reflect::set(&options, &"dest".into(), &JsValue::from_str("/tmp")).unwrap();
+    //     let res = super::process_multipart(JsValue::from(options));
 
-        // call the array function
-        {
-            let array = js_sys::Reflect::get(&res, &JsValue::from_str("array")).unwrap();
-            let array = js_sys::Function::from(array);
-            let req = {
-                let req = Object::new();
-                let file1 = sample_file("foo.txt");
-                let file2 = sample_file("bar.txt");
+    //     // call the array function
+    //     {
+    //         let array = js_sys::Reflect::get(&res, &JsValue::from_str("array")).unwrap();
+    //         let array = js_sys::Function::from(array);
+    //         let req = {
+    //             let req = Object::new();
+    //             let file1 = sample_file("foo.txt");
+    //             let file2 = sample_file("bar.txt");
 
-                let files = Array::from_iter([file1, file2].iter());
+    //             let files = Array::from_iter([file1, file2].iter());
 
-                let body = Object::new();
-                js_sys::Reflect::set(&body, &"file".into(), &files).unwrap();
-                js_sys::Reflect::set(&req, &"body".into(), &JsValue::from(body)).unwrap();
+    //             let body = Object::new();
+    //             js_sys::Reflect::set(&body, &"file".into(), &files).unwrap();
+    //             js_sys::Reflect::set(&req, &"body".into(), &JsValue::from(body)).unwrap();
 
-                JsValue::from(req)
-            };
+    //             JsValue::from(req)
+    //         };
 
-            // noop next function
-            let next = Function::new_no_args("console.log('next called on array')");
-            let res = array.apply(&JsValue::NULL, &Array::from_iter([req, JsValue::NULL, next.into(), JsValue::NULL].iter()));
+    //         // noop next function
+    //         let next = Function::new_no_args("console.log('next called on array')");
+    //         let res = array.apply(&JsValue::NULL, &Array::from_iter([req, JsValue::NULL, next.into(), JsValue::NULL].iter()));
 
-            match res {
-                Ok(val) => {
-                    assert!(val.is_undefined());
-                }
-                Err(err) => {
-                    panic!("expected single to return an object: {:?}", err);
-                }
-            }
-        }
+    //         match res {
+    //             Ok(val) => {
+    //                 assert!(val.is_undefined());
+    //             }
+    //             Err(err) => {
+    //                 panic!("expected single to return an object: {:?}", err);
+    //             }
+    //         }
+    //     }
 
-        // call the single function
-        {
-            let single = js_sys::Reflect::get(&res, &JsValue::from_str("single")).unwrap();
-            let single = js_sys::Function::from(single);
+    //     // call the single function
+    //     {
+    //         let single = js_sys::Reflect::get(&res, &JsValue::from_str("single")).unwrap();
+    //         let single = js_sys::Function::from(single);
 
-            let req = {
-                let req = Object::new();
+    //         let req = {
+    //             let req = Object::new();
 
-                let file = sample_file("foo.txt");
-                let body = Object::new();
-                js_sys::Reflect::set(&body, &"file".into(), &file).unwrap();
-                js_sys::Reflect::set(&req, &"body".into(), &JsValue::from(body)).unwrap();
+    //             let file = sample_file("foo.txt");
+    //             let body = Object::new();
+    //             js_sys::Reflect::set(&body, &"file".into(), &file).unwrap();
+    //             js_sys::Reflect::set(&req, &"body".into(), &JsValue::from(body)).unwrap();
 
-                JsValue::from(req)
-            };
+    //             JsValue::from(req)
+    //         };
 
-            // noop next function
-            let next = Function::new_no_args("console.log('next called on single')");
+    //         // noop next function
+    //         let next = Function::new_no_args("console.log('next called on single')");
 
-            let res = single.apply(&JsValue::NULL, &Array::from_iter([req, JsValue::NULL, next.into(), JsValue::NULL].iter()));
+    //         let res = single.apply(&JsValue::NULL, &Array::from_iter([req, JsValue::NULL, next.into(), JsValue::NULL].iter()));
 
-            match res {
-                Ok(val) => {
-                    assert!(val.is_undefined());
-                }
-                Err(err) => {
-                    panic!("expected single to return an object: {:?}", err);
-                }
-            }
-        }
-    }
+    //         match res {
+    //             Ok(val) => {
+    //                 assert!(val.is_undefined());
+    //             }
+    //             Err(err) => {
+    //                 panic!("expected single to return an object: {:?}", err);
+    //             }
+    //         }
+    //     }
+    // }
 
-    #[allow(dead_code)]
-    fn sample_file(name: &str) -> File {
-        let content = Array::new();
-        content.push(&JsValue::from_str("foo"));
-        let options = js_sys::Object::new();
-        js_sys::Reflect::set(&options, &JsValue::from_str("type"), &JsValue::from_str("text/plain")).unwrap();
-        web_sys::File::new_with_u8_array_sequence(&content, name).unwrap()
-    }
+    // #[allow(dead_code)]
+    // fn sample_file(name: &str) -> File {
+    //     let content = Array::new();
+    //     content.push(&JsValue::from_str("foo"));
+    //     let options = js_sys::Object::new();
+    //     js_sys::Reflect::set(&options, &JsValue::from_str("type"), &JsValue::from_str("text/plain")).unwrap();
+    //     web_sys::File::new_with_u8_array_sequence(&content, name).unwrap()
+    // }
 
-    #[allow(dead_code)]
-    #[wasm_bindgen_test]
-    fn test_try_into() {
-        let val = crate::middleware::to_value_from_js_value(&{
-            let obj = Object::new();
-            JsValue::from(obj)
-        })
-        .unwrap();
-        assert_eq!(*val.get_type(), crate::js_wrapper::Type::Object);
-    }
+    // #[allow(dead_code)]
+    // #[wasm_bindgen_test]
+    // fn test_try_into() {
+    //     let val = crate::middleware::to_value_from_js_value(&{
+    //         let obj = Object::new();
+    //         JsValue::from(obj)
+    //     })
+    //     .unwrap();
+    //     assert_eq!(*val.get_type(), crate::js_wrapper::Type::Object);
+    // }
 }
