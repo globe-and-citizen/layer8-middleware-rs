@@ -74,6 +74,7 @@ jobs:
             uses: actions/setup-node@v2
             with:
               node-version: '22'
+
           - uses: Swatinem/rust-cache@v1
           - name: Add wasm32 target
             run: rustup target add wasm32-unknown-unknown
@@ -90,5 +91,5 @@ jobs:
                 export AR=/opt/homebrew/opt/llvm/bin/llvm-ar
               fi
               cargo install wasm-pack
-              nvm use 22
+              which node
               wasm-pack test --node --all-features
