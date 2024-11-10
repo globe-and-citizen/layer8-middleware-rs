@@ -1,7 +1,7 @@
 [package]
 name = "layer8-middleware-rs"
 # The versions have no bearing, only for the PoC before migrating to Org account
-version = "0.1.9"
+version = "0.1.10"
 edition = "2021"
 authors = ["Osoro Bironga <fanosoro@gmail.com>"]
 repository = "github.com/muse254/layer8-middleware-rs"
