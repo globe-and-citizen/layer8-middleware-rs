@@ -735,7 +735,7 @@ dependencies = [
 
 [[package]]
 name = "layer8-middleware-rs"
-version = "0.1.9"
+version = "0.1.11"
 dependencies = [
  "base64 0.22.1",
  "form_urlencoded",

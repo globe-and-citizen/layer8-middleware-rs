@@ -32,7 +32,10 @@ jobs:
           cargo install wasm-pack
           wasm-pack build --target nodejs
           mkdir pkg/src
-
+          cp src/js_utility_functions.js pkg
+          sudo apt-get -y update && sudo apt-get -y install gawk
+          gawk '{ if (NR == 1) { print $0 " \"directories\": {\"snippets\": \"snippets\"}, "; } else { print $0; } }' ./pkg/package.json > temp.json && mv temp.json ./pkg/package.json 
+     
       - name: Install npm
         uses: actions/setup-node@v2
         with:
