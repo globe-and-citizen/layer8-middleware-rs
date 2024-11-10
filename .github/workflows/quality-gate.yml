@@ -90,4 +90,5 @@ jobs:
                 export AR=/opt/homebrew/opt/llvm/bin/llvm-ar
               fi
               cargo install wasm-pack
+              nvm use 22
               wasm-pack test --node --all-features
