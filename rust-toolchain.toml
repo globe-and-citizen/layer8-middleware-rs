@@ -1,0 +1,4 @@
+[toolchain]
+channel = "1.81.0" # https://github.com/cloudflare/workers-rs/issues/668
+components = ["rustfmt", "clippy", "rust-analyzer"]
+targets = ["wasm32-unknown-unknown"]

@@ -93,9 +93,6 @@ pub fn middleware_tester(_req: JsValue, _res: JsValue, next: JsValue) {
 #[allow(non_snake_case)]
 #[wasm_bindgen(js_name = tunnel)]
 pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
-    // getting the url
-    log(&format!("URL: {}", request_get_url(&req).as_string().unwrap()));
-
     let headers_map = {
         let headers_object = Object::entries(&js_sys::Object::from(request_headers(&req)));
 
@@ -432,6 +429,22 @@ pub fn process_multipart(options: JsValue) -> Object {
         JsValue::from_str(&dest)
     };
 
+    // let decoder = {
+    //     let decoder: Closure<dyn Fn(wasm_bindgen::JsValue) -> wasm_bindgen::JsValue> = Closure::new(|data: JsValue| {
+    //         let data = data.as_string().expect("expected data to be a string");
+    //         let data = base64_enc_dec
+    //             .decode(data)
+    //             .map_err(|e| {
+    //                 log(&format!("Error decoding base64 string: {}", e));
+    //             })
+    //             .unwrap_or(Vec::new());
+
+    //         Uint8Array::from(data)
+    //     });
+
+    //     decoder.into_js_value()
+    // };
+
     let single = single_fn(dest.clone());
     let array = array_fn(dest);
 
@@ -503,7 +516,6 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: JsValue) {
     let client_uuid = match headers_map.get("x-client-uuid") {
         Some(val) => val,
         None => {
-            console_error("The tunnel is not initialized for this client call");
             return return_encrypted_image(res);
         }
     };
@@ -545,8 +557,6 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: JsValue) {
         }
     };
 
-    log(&format!("Resource is `{}`", resource_url));
-
     let parsed_url = url::Url::parse(&resource_url).expect("expected the url_path to be a valid url path, check the __url_path key");
 
     let query_pairs: HashMap<_, _> = parsed_url.query_pairs().into_owned().collect();
@@ -567,8 +577,6 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: JsValue) {
         if path.eq("/") {
             path = "/index.html".to_string();
         }
-
-        log(&format!("Path is {}", path));
 
         path
     };
@@ -641,8 +649,6 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: JsValue) {
     };
 
     let mime_type = data.sniff_mime_type().unwrap_or("application/octet-stream");
-
-    log(&format!("Mime type is: {mime_type}"));
 
     let js_res = Response {
         body: data.clone(),
