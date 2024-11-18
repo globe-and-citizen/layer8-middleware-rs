@@ -32,7 +32,7 @@ jobs:
           fi
           cargo install wasm-pack
           wasm-pack build --target nodejs --release
-          sudo apt-get -y update && sudo apt-get -y install gawk
+          brew install gawk
           gawk '{ if (NR == 14) { print $0 "\"./snippets/*\", "; } else { print $0; } }' ./pkg/package.json > temp.json && mv temp.json ./pkg/package.json 
          
       - name: Install npm
