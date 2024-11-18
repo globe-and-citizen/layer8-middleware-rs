@@ -76,6 +76,7 @@ mod tests {
 
     use super::process_data;
 
+    #[allow(dead_code)]
     #[wasm_bindgen_test]
     fn test_process_data() {
         let (priv_key, pub_key) = generate_key_pair(KeyUse::Ecdh).unwrap();

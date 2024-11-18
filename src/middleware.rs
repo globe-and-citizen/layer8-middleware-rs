@@ -960,16 +960,17 @@ fn prepare_data(res: &JsValue, data: &[u8], sym_key: &Jwk, jwt: &str) -> Respons
 
 #[cfg(test)]
 mod tests {
-    use js_sys::{Array, Function, Object};
+    use js_sys::Object;
     use wasm_bindgen::JsValue;
     use wasm_bindgen_test::*;
-    use web_sys::File;
 
+    #[allow(dead_code)]
     #[wasm_bindgen_test]
     fn test_wasm() {
         assert_eq!(super::test_wasm(), "42");
     }
 
+    #[allow(dead_code)]
     #[wasm_bindgen_test]
     fn test_mutate_value() {
         let obj = Object::new();
