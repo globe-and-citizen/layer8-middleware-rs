@@ -6,7 +6,8 @@ on:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    # issues working with ubuntu-latest, adds 
+    runs-on: macos-latest
 
     steps:
       - name: Checkout code
