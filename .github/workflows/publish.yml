@@ -30,7 +30,7 @@ jobs:
             export AR=/opt/homebrew/opt/llvm/bin/llvm-ar
           fi
           cargo install wasm-pack
-          wasm-pack build --target nodejs 
+          wasm-pack build --target nodejs --release
           sudo apt-get -y update && sudo apt-get -y install gawk
           gawk '{ if (NR == 14) { print $0 "\"./snippets/*\", "; } else { print $0; } }' ./pkg/package.json > temp.json && mv temp.json ./pkg/package.json 
          
