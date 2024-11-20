@@ -6,7 +6,7 @@ on:
 
 jobs:
   publish:
-    # issues working with ubuntu-latest, adds 
+    # issues working with ubuntu-latest, added 'env'
     runs-on: macos-latest
 
     steps:
@@ -24,12 +24,10 @@ jobs:
       - name: Build
         run: |
           # If macOs install llvm with brew
-          if [[ "$RUNNER_OS" == "macOS" ]]; then
-            brew install llvm
-            export PATH="/opt/homebrew/opt/llvm/bin:$PATH"
-            export CC=/opt/homebrew/opt/llvm/bin/clang
-            export AR=/opt/homebrew/opt/llvm/bin/llvm-ar
-          fi
+          brew install llvm
+          export PATH="/opt/homebrew/opt/llvm/bin:$PATH"
+          export CC=/opt/homebrew/opt/llvm/bin/clang
+          export AR=/opt/homebrew/opt/llvm/bin/llvm-ar
           cargo install wasm-pack
           wasm-pack build --target nodejs --release
           brew install gawk
