@@ -46,23 +46,21 @@ function array_fn(dest) {
       return
     }
 
-    let files = req.body.file
+    let files = JSON.parse(req.body).files // <input type="file" multiple name="files[]" />
     if (files === undefined) {
       return
     }
 
     let fileArray = []
     for (let file of files) {
-      if (file.constructor.name !== 'File') {
-        continue
-      }
+      // Create a Uint8Array from the buffer
+      let data = Buffer.from(file.buff, "base64");
 
-      file.arrayBuffer().then(buffer => {
-        const uint8Array = new Uint8Array(buffer)
-        const filePath = `${dest}/${file.name}`
-        fs.writeFileSync(filePath, uint8Array)
-        fileArray.push(file)
-      })
+      // Write the file to the destination directory
+      const filePath = `${dest}/${file.name}`
+      fs.writeFileSync(filePath, data)
+
+      fileArray = [...fileArray, file]
     }
 
     req.files = fileArray
