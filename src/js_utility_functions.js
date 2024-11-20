@@ -46,7 +46,7 @@ function array_fn(dest) {
       return
     }
 
-    let files = JSON.parse(req.body).files // <input type="file" multiple name="files[]" />
+    let files = JSON.parse(req.body).files
     if (files === undefined) {
       return
     }
@@ -64,6 +64,9 @@ function array_fn(dest) {
     }
 
     req.files = fileArray
+
+    // Continue to the next middleware/handler
+    console.log("Successfully saved static files")
   }
 }
 
