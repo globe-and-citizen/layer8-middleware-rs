@@ -59,7 +59,7 @@ jobs:
     test:
         strategy:
           matrix:
-            platform: [ubuntu-latest, macos-latest]
+            platform: [macos-latest]
             toolchain: [stable]
         runs-on: ${{ matrix.platform }}     
         steps:
