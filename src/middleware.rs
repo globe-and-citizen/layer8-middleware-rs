@@ -424,22 +424,6 @@ pub fn process_multipart(options: JsValue) -> Object {
         JsValue::from_str(&dest)
     };
 
-    // let decoder = {
-    //     let decoder: Closure<dyn Fn(wasm_bindgen::JsValue) -> wasm_bindgen::JsValue> = Closure::new(|data: JsValue| {
-    //         let data = data.as_string().expect("expected data to be a string");
-    //         let data = base64_enc_dec
-    //             .decode(data)
-    //             .map_err(|e| {
-    //                 log(&format!("Error decoding base64 string: {}", e));
-    //             })
-    //             .unwrap_or(Vec::new());
-
-    //         Uint8Array::from(data)
-    //     });
-
-    //     decoder.into_js_value()
-    // };
-
     let single = single_fn(dest.clone());
     let array = array_fn(dest);
 
@@ -456,8 +440,10 @@ pub fn process_multipart(options: JsValue) -> Object {
 #[allow(non_snake_case)]
 #[wasm_bindgen(js_name = static)]
 pub fn _static(dir: JsValue) -> JsValue {
+    log("Calling higher order fn");
     let higher_order_fn: Closure<dyn Fn(wasm_bindgen::JsValue, wasm_bindgen::JsValue, wasm_bindgen::JsValue)> =
         Closure::new(move |req, res, next| {
+            log("calling serve static");
             serve_static(&req, &res, dir.clone());
 
             // invoking next middleware
@@ -469,6 +455,8 @@ pub fn _static(dir: JsValue) -> JsValue {
 }
 
 fn serve_static(req: &JsValue, res: &JsValue, dir: JsValue) {
+    log("I get the dignity of being called");
+
     let return_encrypted_image = |res: &JsValue| {
         response_set_status(res, 200);
         response_set_status_text(res, "OK");
@@ -517,6 +505,8 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: JsValue) {
         }
     };
 
+    log("Some place here");
+
     let (mp_jwt, symmetric_key) = INMEM_STORAGE_INSTANCE.with(|val| {
         let val_ = val.take();
         val.replace(val_.clone());
@@ -554,6 +544,8 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: JsValue) {
         }
     };
 
+    log("Here 1");
+
     let parsed_url = url::Url::parse(&resource_url).expect("expected the url_path to be a valid url path, check the __url_path key");
 
     let query_pairs: HashMap<_, _> = parsed_url.query_pairs().into_owned().collect();
@@ -569,7 +561,9 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: JsValue) {
     // getting the file path
     let path = {
         let url = Url::parse(&resource_url).unwrap();
-        let mut path = url.path().trim_start_matches("/media").to_string();
+        let mut path = url.path().to_string();
+
+        log(&format!("Resource path is: {path}"));
 
         if path.eq("/") {
             path = "/index.html".to_string();

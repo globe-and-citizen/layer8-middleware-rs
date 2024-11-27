@@ -5,68 +5,92 @@ function single_fn(dest) {
     dest = 'tmp'
   }
 
-  return function (req, _res) {
-    // if the destination directory does not exist, create it
-    if (!fs.existsSync(dest)) {
-      fs.mkdirSync(dest, { recursive: true })
-    }
+  // This higher order function is used to dynamically provide the filename
+  return function (filename) {
+    // This is the middleware function that will be used to save the file
+    return function (req, _res, next) {
+      // if the destination directory does not exist, create it
+      if (!fs.existsSync(dest)) {
+        fs.mkdirSync(dest, { recursive: true })
+      }
 
-    if (req === null || req.body === undefined || req.body === null) {
-      return
-    }
+      if (req === null || req.body === undefined || req.body === null) {
+        if (next !== undefined || next !== null) {
+          next()
+        }
+        return
+      }
 
-    // Create a Uint8Array from the buffer
-    let file = JSON.parse(req.body).file;
-    let data = Buffer.from(file.buff, "base64");
-
-    // Write the file to the destination directory
-    const filePath = `${dest}/${file.name}`
-    fs.writeFileSync(filePath, data)
-
-    // Set the file to the request body
-    req.file = file
-
-    // Continue to the next middleware/handler
-    console.log("Successfully saved static file")
-  }
-}
-
-// FIXME: this needs work
-function array_fn(dest) {
-  if (dest === '') {
-    dest = 'tmp'
-  }
-
-  return function (req, _res) {
-    if (!fs.existsSync(dest)) {
-      fs.mkdirSync(dest, { recursive: true })
-    }
-
-    if (req.body === undefined || req.body === null) {
-      return
-    }
-
-    let files = JSON.parse(req.body).files
-    if (files === undefined) {
-      return
-    }
-
-    let fileArray = []
-    for (let file of files) {
       // Create a Uint8Array from the buffer
+      let file = JSON.parse(req.body)[filename];
       let data = Buffer.from(file.buff, "base64");
 
       // Write the file to the destination directory
       const filePath = `${dest}/${file.name}`
       fs.writeFileSync(filePath, data)
 
-      fileArray = [...fileArray, file]
+      // Set the file to the request body
+      req.file = file
+
+      // Continue to the next middleware/handler
+      console.log("Successfully saved static file")
+      if (next !== undefined || next !== null) {
+        next()
+      }
     }
+  }
+}
 
-    req.files = fileArray
+function array_fn(dest) {
+  if (dest === '') {
+    dest = 'tmp'
+  }
 
-    // Continue to the next middleware/handler
-    console.log("Successfully saved static files")
+  // This higher order function is used to dynamically provide the filename
+  return function (fileCollectionName) {
+    // This is the middleware function that will be used to save the file
+    return function (req, _res, next) {
+      if (!fs.existsSync(dest)) {
+        fs.mkdirSync(dest, { recursive: true })
+      }
+
+      if (req.body === undefined || req.body === null) {
+        if (next !== undefined || next !== null) {
+          next()
+        }
+        return
+      }
+
+      let files = JSON.parse(req.body)[fileCollectionName]
+      if (files === undefined) {
+        if (next !== undefined || next !== null) {
+          next()
+        }
+        return
+      }
+
+      let fileArray = []
+      for (let file of files) {
+        if (file.constructor.name !== 'File') {
+          continue
+        }
+
+        file.arrayBuffer().then(buffer => {
+          const uint8Array = new Uint8Array(buffer)
+          const filePath = `${dest}/${file.name}`
+          fs.writeFileSync(filePath, uint8Array)
+          fileArray.push(file)
+        })
+      }
+
+      req.files = fileArray
+
+      // Continue to the next middleware/handler
+      console.log("Successfully saved static files")
+      if (next !== undefined || next !== null) {
+        next()
+      }
+    }
   }
 }
 
