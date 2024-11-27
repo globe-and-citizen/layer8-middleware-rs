@@ -94,10 +94,6 @@ function request_get_url(req) {
   return req.url
 }
 
-function request_get_method(req) {
-  return req.method
-}
-
 function request_headers(req) {
   return req.headers
 }
@@ -181,7 +177,6 @@ module.exports = {
   response_set_status_text,
   response_set_body,
   response_get_headers,
-  request_get_method,
   response_get_status,
   response_get_status_text,
   response_end,

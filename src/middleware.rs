@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use base64::{self, engine::general_purpose::URL_SAFE as base64_enc_dec, Engine as _};
-use js_sys::{Array, Function, Object, Uint8Array};
+use js_sys::{Array, Object, Uint8Array};
 use mime_sniffer::MimeTypeSniffer;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use serde_json::json;
@@ -36,9 +36,7 @@ extern "C" {
     fn request_get_url(req: &JsValue) -> JsValue;
     fn request_headers(req: &JsValue) -> JsValue;
     fn request_get_body_string(req: &JsValue) -> JsValue;
-    //  fn request_get_method(req: &JsValue) -> JsValue; // not persisted
     fn request_callbacks(res: &JsValue, symmetric_key: JsValue, mp_jwt: JsValue, respond_callback: JsValue);
-
     fn request_add_on_end(req: &JsValue, end: JsValue);
 
     fn response_add_header(res: &JsValue, key: &str, val: &str);
@@ -82,14 +80,7 @@ pub fn test_wasm() -> JsValue {
     JsValue::from_str("42")
 }
 
-#[allow(non_snake_case)]
-#[wasm_bindgen(js_name = middleware_tester)]
-pub fn middleware_tester(_req: JsValue, _res: JsValue, next: JsValue) {
-    if let Err(err) = Function::from(next).call0(&JsValue::NULL) {
-        console_error(&format!("Error invoking next middleware: {err:?}"));
-    }
-}
-
+/// This function is a middleware that is used to initialize the ECDH key exchange between the client and the server.
 #[allow(non_snake_case)]
 #[wasm_bindgen(js_name = tunnel)]
 pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
@@ -416,8 +407,12 @@ pub fn respond_callback(res: &JsValue, data: &JsValue, sym_key: JsValue, jwt: Js
     response_end(res, JsValue::from_str(&data));
 }
 
+/// This function processes the multipart form data, it returns an object with two functions: `single` and `array`
+/// `single` is used to process a single file upload
+/// `array` is used to process multiple file uploads
+/// The `dest` parameter is the destination where the files will be saved. The destination is expected to be a string.
 #[allow(non_snake_case)]
-#[wasm_bindgen(js_name = ProcessMultipart)]
+#[wasm_bindgen(js_name = multipart)]
 pub fn process_multipart(options: JsValue) -> Object {
     let dest = {
         let dest = js_sys::Reflect::get(&options, &JsValue::from_str("dest"))
@@ -456,8 +451,10 @@ pub fn process_multipart(options: JsValue) -> Object {
     return_object
 }
 
+/// This function is responsible for serving static files, it takes the resource directory as an argument.
+/// The resource directory is expected to be a string.
 #[allow(non_snake_case)]
-#[wasm_bindgen(js_name = _static)]
+#[wasm_bindgen(js_name = static)]
 pub fn _static(dir: JsValue) -> JsValue {
     let higher_order_fn: Closure<dyn Fn(wasm_bindgen::JsValue, wasm_bindgen::JsValue, wasm_bindgen::JsValue)> =
         Closure::new(move |req, res, next| {
