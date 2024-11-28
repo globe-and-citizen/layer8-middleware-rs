@@ -230,7 +230,6 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
     });
     request_callbacks(&res, sym_key, jwt, respond_callback_.into_js_value());
 
-    // we are not waiting for the `on end event` and `on data event` to be called; still figuring how to work that in in a way that works
     let body = match request_get_body_string(&req).as_string() {
         Some(val) => val,
         None => {
@@ -246,6 +245,8 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
     match process_data(&body, &symmetric_key) {
         Ok(processed_req) => {
             log("Successfully processed data!");
+
+            log(&format!("Processed Request: {}", String::from_utf8_lossy(&processed_req.body)));
 
             // propagate the request's original method
             request_set_method(&req, &processed_req.method);
@@ -314,7 +315,6 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
 
                 _ => {
                     if let Some(val) = req_body.get("__url_path") {
-                        //  {"_type":{"_type":"String","value":"https://xxx:xxx/api/profile/upload"}}
                         let url_path = match serde_json::from_value::<UrlPath>(val.clone()) {
                             // this is used on upload
                             Ok(val) => val._type.value,
@@ -455,8 +455,6 @@ pub fn _static(dir: JsValue) -> JsValue {
 }
 
 fn serve_static(req: &JsValue, res: &JsValue, dir: JsValue) {
-    log("I get the dignity of being called");
-
     let return_encrypted_image = |res: &JsValue| {
         response_set_status(res, 200);
         response_set_status_text(res, "OK");
@@ -505,8 +503,6 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: JsValue) {
         }
     };
 
-    log("Some place here");
-
     let (mp_jwt, symmetric_key) = INMEM_STORAGE_INSTANCE.with(|val| {
         let val_ = val.take();
         val.replace(val_.clone());
@@ -544,8 +540,6 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: JsValue) {
         }
     };
 
-    log("Here 1");
-
     let parsed_url = url::Url::parse(&resource_url).expect("expected the url_path to be a valid url path, check the __url_path key");
 
     let query_pairs: HashMap<_, _> = parsed_url.query_pairs().into_owned().collect();
@@ -562,9 +556,6 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: JsValue) {
     let path = {
         let url = Url::parse(&resource_url).unwrap();
         let mut path = url.path().to_string();
-
-        log(&format!("Resource path is: {path}"));
-
         if path.eq("/") {
             path = "/index.html".to_string();
         }
@@ -572,7 +563,7 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: JsValue) {
         path
     };
 
-    let path = match url::form_urlencoded::parse(path.as_bytes()).next() {
+    let mut path = match url::form_urlencoded::parse(path.as_bytes()).next() {
         Some((key, val)) => {
             if val.is_empty() {
                 key.to_string()
@@ -589,22 +580,46 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: JsValue) {
         }
     };
 
-    let path_ = dir.as_string().expect("expected the dir to be a string; qed") + &path;
-    let path_ = format!("./{}", path_);
+    // we don't want to hardcode any paths but if on first try we do not get the path, it's time to truncate the sub-paths
+    // until we are left with 0 sub-paths and we can call it a failure logging all the permutations of the path
+    //
+    // Say if we have `./pictures/anything/some_file.png`, we want the next iteration to be `./pictures/some_file.png`
+    // where 'pictures' is the constant directory provided by the user
+    let mut trials = Vec::new();
+    let dir = dir.as_string().expect("expected dir to be a string");
+    loop {
+        let path_ = format!("./{dir}/{}", path.trim_start_matches("/"));
+        match exists_sync(&path_) {
+            Ok(val) => {
+                if val {
+                    log(&format!("Paths traversed so far: {trials:?}"));
+                    log(&format!("Path found: {path_}"));
+                    path = path_;
+                    break;
+                }
+            }
+            Err(err) => {
+                console_error(&format!("Could not call `fs.existsSync` API: {:?}", err.as_string()));
+                return;
+            }
+        };
 
-    let exists = match exists_sync(&path_) {
-        Ok(val) => val,
-        Err(err) => {
-            console_error(&format!("Could not call `fs.existsSync` API: {:?}", err.as_string()));
+        let mut parts = path.split('/').filter(|x| !x.is_empty()).collect::<Vec<&str>>();
+
+        if !parts.is_empty() {
+            trials.push(path_.clone());
+            parts.remove(0);
+        }
+
+        if parts.is_empty() {
+            log(&format!("Path(s) traversed and not found: {trials:?}"));
+            response_set_status(res, 404);
+            response_set_status_text(res, "404 Not Found");
+            response_end(res, JsValue::from(format!("Cannot GET {trials:?}")));
             return;
         }
-    };
 
-    if !exists {
-        log(&format!("Path not found: {path_}"));
-        response_set_status(res, 404);
-        response_set_status_text(res, "404 Not Found");
-        response_end(res, JsValue::from(format!("Cannot GET {path}")));
+        path = parts.join("/");
     }
 
     // return the default EncryptedImageData if the request is not a layer8 request
@@ -613,7 +628,7 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: JsValue) {
     }
 
     let data = {
-        let buff = match read_file(&path_) {
+        let buff = match read_file(&path) {
             Ok(val) => val,
             Err(err) => {
                 console_error(&format!("Could not read file: {err:?}"));
