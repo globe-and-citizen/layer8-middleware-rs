@@ -114,10 +114,6 @@ function request_set_method(req, method) {
   req.method = method
 }
 
-function request_get_url(req) {
-  return req.url
-}
-
 function request_headers(req) {
   return req.headers
 }
@@ -134,10 +130,6 @@ function request_callbacks(res, sym_key, mp_jwt, respond_callback) {
   res.json = function (obj) {
     respond_callback(res, obj, sym_key, mp_jwt)
   }
-}
-
-function request_add_on_end(req, end) {
-  req.on('end', end)
 }
 
 function as_json_string(obj) {
@@ -191,11 +183,9 @@ module.exports = {
   request_set_body,
   request_set_url,
   request_set_method,
-  request_get_url,
   request_headers,
   request_callbacks,
   request_get_body_string,
-  request_add_on_end,
   response_add_header,
   response_set_status,
   response_set_status_text,
