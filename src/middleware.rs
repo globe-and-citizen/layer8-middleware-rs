@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use base64::{self, engine::general_purpose::URL_SAFE as base64_enc_dec, Engine as _};
-use js_sys::{Array, Function, Object, Uint8Array};
+use js_sys::{Array, Object, Uint8Array};
 use mime_sniffer::MimeTypeSniffer;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use serde_json::json;
@@ -17,50 +17,10 @@ use crate::{
         self,
         process_data::{process_data, UrlPath},
     },
+    js_wrapper::custom_js_imports::*,
     js_wrapper::{self, to_value_from_js_value, JsWrapper, Type, Value},
     storage::INMEM_STORAGE_INSTANCE,
 };
-
-// This imports are necessary, there's some type erasure working in the transformed Rust and or APIs transformed
-// are not ported 1:1 from JS to Rust
-#[wasm_bindgen(module = "/src/js_utility_functions.js")]
-extern "C" {
-    fn array_fn(dest: JsValue) -> JsValue;
-    fn single_fn(dest: JsValue) -> JsValue;
-    fn as_json_string(val: &JsValue) -> String;
-
-    fn request_set_header(req: &JsValue, key: &str, val: &str);
-    fn request_set_body(req: &JsValue, body: JsValue);
-    fn request_set_url(req: &JsValue, url: &str);
-    fn request_set_method(req: &JsValue, method: &str);
-    fn request_get_url(req: &JsValue) -> JsValue;
-    fn request_headers(req: &JsValue) -> JsValue;
-    fn request_get_body_string(req: &JsValue) -> JsValue;
-    //  fn request_get_method(req: &JsValue) -> JsValue; // not persisted
-    fn request_callbacks(res: &JsValue, symmetric_key: JsValue, mp_jwt: JsValue, respond_callback: JsValue);
-
-    fn request_add_on_end(req: &JsValue, end: JsValue);
-
-    fn response_add_header(res: &JsValue, key: &str, val: &str);
-    fn response_set_status(res: &JsValue, status: u16);
-    fn response_set_status_text(res: &JsValue, status_text: &str);
-    fn response_set_body(res: &JsValue, body: &[u8]);
-    fn response_get_headers(res: &JsValue) -> JsValue;
-    fn response_get_status(res: &JsValue) -> JsValue;
-    fn response_get_status_text(res: &JsValue) -> JsValue;
-    fn response_end(res: &JsValue, body: JsValue);
-
-    fn get_url_path(js_str: &str) -> JsValue;
-}
-
-#[wasm_bindgen(module = "fs")]
-extern "C" {
-    #[wasm_bindgen(js_name = readFileSync, catch)]
-    fn read_file(path: &str) -> Result<Buffer, JsValue>;
-
-    #[wasm_bindgen(js_name = existsSync, catch)]
-    fn exists_sync(path: &str) -> Result<bool, JsValue>;
-}
 
 /// This block imports Javascript functions that are provided by the JS Runtime.
 #[allow(non_snake_case)]
@@ -76,20 +36,16 @@ extern "C" {
     fn log(s: &str);
 }
 
-#[allow(non_snake_case)]
-#[wasm_bindgen(js_name = TestWASM)]
-pub fn test_wasm() -> JsValue {
-    JsValue::from_str("42")
+#[wasm_bindgen(module = "fs")]
+extern "C" {
+    #[wasm_bindgen(js_name = readFileSync, catch)]
+    fn read_file(path: &str) -> Result<Buffer, JsValue>;
+
+    #[wasm_bindgen(js_name = existsSync, catch)]
+    fn exists_sync(path: &str) -> Result<bool, JsValue>;
 }
 
-#[allow(non_snake_case)]
-#[wasm_bindgen(js_name = middleware_tester)]
-pub fn middleware_tester(_req: JsValue, _res: JsValue, next: JsValue) {
-    if let Err(err) = Function::from(next).call0(&JsValue::NULL) {
-        console_error(&format!("Error invoking next middleware: {err:?}"));
-    }
-}
-
+/// This function is a middleware that is used to initialize the ECDH key exchange between the client and the server.
 #[allow(non_snake_case)]
 #[wasm_bindgen(js_name = tunnel)]
 pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
@@ -231,30 +187,20 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
     };
 
     let sym_key = serde_json::to_string(&symmetric_key)
-        .map(|val| JsValue::from_str(&val))
+        .map(|val| val)
         .expect("expected symmetric key to be serializable to a string; qed");
-    let jwt = JsValue::from_str(&mp_jwt);
-    let respond_callback_: Closure<dyn Fn(JsValue, JsValue, JsValue, JsValue)> = Closure::new(|res, data, sym_key, jwt| {
+    let respond_callback_: Closure<dyn Fn(JsValue, JsValue, String, String)> = Closure::new(|res, data, sym_key, jwt| {
         respond_callback(&res, &data, sym_key, jwt);
     });
-    request_callbacks(&res, sym_key, jwt, respond_callback_.into_js_value());
+    request_callbacks(&res, &sym_key, &mp_jwt, respond_callback_.into_js_value());
 
-    // we are not waiting for the `on end event` and `on data event` to be called; still figuring how to work that in in a way that works
-    let body = match request_get_body_string(&req).as_string() {
-        Some(val) => val,
-        None => {
-            console_error("expected body to be a string");
-            // invoking next middleware
-            if let Err(e) = js_sys::Function::from(next).call0(&JsValue::NULL) {
-                console_error(&format!("Error invoking next middleware: {e:?}"));
-            }
-            return;
-        }
-    };
+    let body = request_get_body_string(&req);
 
     match process_data(&body, &symmetric_key) {
         Ok(processed_req) => {
             log("Successfully processed data!");
+
+            log(&format!("Processed Request: {}", String::from_utf8_lossy(&processed_req.body)));
 
             // propagate the request's original method
             request_set_method(&req, &processed_req.method);
@@ -323,7 +269,6 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
 
                 _ => {
                     if let Some(val) = req_body.get("__url_path") {
-                        //  {"_type":{"_type":"String","value":"https://xxx:xxx/api/profile/upload"}}
                         let url_path = match serde_json::from_value::<UrlPath>(val.clone()) {
                             // this is used on upload
                             Ok(val) => val._type.value,
@@ -388,9 +333,8 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
     }
 }
 
-pub fn respond_callback(res: &JsValue, data: &JsValue, sym_key: JsValue, jwt: JsValue) {
-    let sym_key = serde_json::from_str::<Jwk>(&sym_key.as_string().expect("expected sym_key to be a string"))
-        .expect("expected sym_key to be a valid json object; qed"); // infalliable, we know the data is a valid json object
+fn respond_callback(res: &JsValue, data: &JsValue, sym_key: String, jwt: String) {
+    let sym_key = serde_json::from_str::<Jwk>(&sym_key).expect("expected sym_key to be a valid json object; qed"); // infalliable, we know the data is a valid json object
 
     let mut data_ = Vec::new();
     if data.is_string() {
@@ -401,7 +345,7 @@ pub fn respond_callback(res: &JsValue, data: &JsValue, sym_key: JsValue, jwt: Js
         console_error(&format!("expected data to be a string or an object, have: {:?}", data));
     }
 
-    let resp = prepare_data(res, &data_, &sym_key, &jwt.as_string().expect("expected jwt to be a string"));
+    let resp = prepare_data(res, &data_, &sym_key, &jwt);
     response_set_status(res, resp.status);
     response_set_status_text(res, &resp.status_text);
     for (key, val) in resp.headers {
@@ -416,8 +360,12 @@ pub fn respond_callback(res: &JsValue, data: &JsValue, sym_key: JsValue, jwt: Js
     response_end(res, JsValue::from_str(&data));
 }
 
+/// This function processes the multipart form data, it returns an object with two functions: `single` and `array`
+/// `single` is used to process a single file upload
+/// `array` is used to process multiple file uploads
+/// The `dest` parameter is the destination where the files will be saved. The destination is expected to be a string.
 #[allow(non_snake_case)]
-#[wasm_bindgen(js_name = ProcessMultipart)]
+#[wasm_bindgen(js_name = multipart)]
 pub fn process_multipart(options: JsValue) -> Object {
     let dest = {
         let dest = js_sys::Reflect::get(&options, &JsValue::from_str("dest"))
@@ -428,22 +376,6 @@ pub fn process_multipart(options: JsValue) -> Object {
             .to_string();
         JsValue::from_str(&dest)
     };
-
-    // let decoder = {
-    //     let decoder: Closure<dyn Fn(wasm_bindgen::JsValue) -> wasm_bindgen::JsValue> = Closure::new(|data: JsValue| {
-    //         let data = data.as_string().expect("expected data to be a string");
-    //         let data = base64_enc_dec
-    //             .decode(data)
-    //             .map_err(|e| {
-    //                 log(&format!("Error decoding base64 string: {}", e));
-    //             })
-    //             .unwrap_or(Vec::new());
-
-    //         Uint8Array::from(data)
-    //     });
-
-    //     decoder.into_js_value()
-    // };
 
     let single = single_fn(dest.clone());
     let array = array_fn(dest);
@@ -456,11 +388,14 @@ pub fn process_multipart(options: JsValue) -> Object {
     return_object
 }
 
+/// This function is responsible for serving static files, it takes the resource directory as an argument.
+/// The resource directory is expected to be a string.
 #[allow(non_snake_case)]
-#[wasm_bindgen(js_name = _static)]
+#[wasm_bindgen(js_name = static)]
 pub fn _static(dir: JsValue) -> JsValue {
     let higher_order_fn: Closure<dyn Fn(wasm_bindgen::JsValue, wasm_bindgen::JsValue, wasm_bindgen::JsValue)> =
         Closure::new(move |req, res, next| {
+            log("calling serve static");
             serve_static(&req, &res, dir.clone());
 
             // invoking next middleware
@@ -541,13 +476,7 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: JsValue) {
 
     // The body is expected to be parsed already by the: `app.use(express.json())` middleware
     // also by the time static is called; the middleware function has already decoded the body
-    let body = match request_get_body_string(req).as_string() {
-        Some(val) => val,
-        None => {
-            console_error("Could not retrieve the body");
-            return return_encrypted_image(res);
-        }
-    };
+    let body = request_get_body_string(req);
 
     let resource_url = match get_url_path(&body).as_string() {
         Some(val) => val,
@@ -572,8 +501,7 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: JsValue) {
     // getting the file path
     let path = {
         let url = Url::parse(&resource_url).unwrap();
-        let mut path = url.path().trim_start_matches("/media").to_string();
-
+        let mut path = url.path().to_string();
         if path.eq("/") {
             path = "/index.html".to_string();
         }
@@ -581,7 +509,7 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: JsValue) {
         path
     };
 
-    let path = match url::form_urlencoded::parse(path.as_bytes()).next() {
+    let mut path = match url::form_urlencoded::parse(path.as_bytes()).next() {
         Some((key, val)) => {
             if val.is_empty() {
                 key.to_string()
@@ -598,22 +526,46 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: JsValue) {
         }
     };
 
-    let path_ = dir.as_string().expect("expected the dir to be a string; qed") + &path;
-    let path_ = format!("./{}", path_);
+    // we don't want to hardcode any paths but if on first try we do not get the path, it's time to truncate the sub-paths
+    // until we are left with 0 sub-paths and we can call it a failure logging all the permutations of the path
+    //
+    // Say if we have `./pictures/anything/some_file.png`, we want the next iteration to be `./pictures/some_file.png`
+    // where 'pictures' is the constant directory provided by the user
+    let mut trials = Vec::new();
+    let dir = dir.as_string().expect("expected dir to be a string");
+    loop {
+        let path_ = format!("./{dir}/{}", path.trim_start_matches("/"));
+        match exists_sync(&path_) {
+            Ok(val) => {
+                if val {
+                    log(&format!("Paths traversed so far: {trials:?}"));
+                    log(&format!("Path found: {path_}"));
+                    path = path_;
+                    break;
+                }
+            }
+            Err(err) => {
+                console_error(&format!("Could not call `fs.existsSync` API: {:?}", err.as_string()));
+                return;
+            }
+        };
 
-    let exists = match exists_sync(&path_) {
-        Ok(val) => val,
-        Err(err) => {
-            console_error(&format!("Could not call `fs.existsSync` API: {:?}", err.as_string()));
+        let mut parts = path.split('/').filter(|x| !x.is_empty()).collect::<Vec<&str>>();
+
+        if !parts.is_empty() {
+            trials.push(path_.clone());
+            parts.remove(0);
+        }
+
+        if parts.is_empty() {
+            log(&format!("Path(s) traversed and not found: {trials:?}"));
+            response_set_status(res, 404);
+            response_set_status_text(res, "404 Not Found");
+            response_end(res, JsValue::from(format!("Cannot GET {trials:?}")));
             return;
         }
-    };
 
-    if !exists {
-        log(&format!("Path not found: {path_}"));
-        response_set_status(res, 404);
-        response_set_status_text(res, "404 Not Found");
-        response_end(res, JsValue::from(format!("Cannot GET {path}")));
+        path = parts.join("/");
     }
 
     // return the default EncryptedImageData if the request is not a layer8 request
@@ -622,7 +574,7 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: JsValue) {
     }
 
     let data = {
-        let buff = match read_file(&path_) {
+        let buff = match read_file(&path) {
             Ok(val) => val,
             Err(err) => {
                 console_error(&format!("Could not read file: {err:?}"));
@@ -958,6 +910,12 @@ fn prepare_data(res: &JsValue, data: &[u8], sym_key: &Jwk, jwt: &str) -> Respons
     }
 }
 
+#[allow(non_snake_case)]
+#[wasm_bindgen(js_name = TestWASM)]
+pub fn test_wasm() -> JsValue {
+    JsValue::from_str("42")
+}
+
 #[cfg(test)]
 mod tests {
     use js_sys::Object;
@@ -984,100 +942,20 @@ mod tests {
         assert!(obj.has_own_property(&JsValue::from_str("statusCode")));
     }
 
-    // #[test]
-    // fn test_get_arbitrary_boundary() {
-    //     let boundary = super::get_arbitrary_boundary();
-    //     assert!(boundary.starts_with("----Layer8FormBoundary"));
-    // }
+    #[test]
+    fn test_get_arbitrary_boundary() {
+        let boundary = super::get_arbitrary_boundary();
+        assert!(boundary.starts_with("----Layer8FormBoundary"));
+    }
 
-    // #[allow(dead_code)]
-    // #[wasm_bindgen_test]
-    // fn test_process_multipart() {
-    //     let options = Object::new();
-    //     js_sys::Reflect::set(&options, &"dest".into(), &JsValue::from_str("/tmp")).unwrap();
-    //     let res = super::process_multipart(JsValue::from(options));
-
-    //     // call the array function
-    //     {
-    //         let array = js_sys::Reflect::get(&res, &JsValue::from_str("array")).unwrap();
-    //         let array = js_sys::Function::from(array);
-    //         let req = {
-    //             let req = Object::new();
-    //             let file1 = sample_file("foo.txt");
-    //             let file2 = sample_file("bar.txt");
-
-    //             let files = Array::from_iter([file1, file2].iter());
-
-    //             let body = Object::new();
-    //             js_sys::Reflect::set(&body, &"file".into(), &files).unwrap();
-    //             js_sys::Reflect::set(&req, &"body".into(), &JsValue::from(body)).unwrap();
-
-    //             JsValue::from(req)
-    //         };
-
-    //         // noop next function
-    //         let next = Function::new_no_args("console.log('next called on array')");
-    //         let res = array.apply(&JsValue::NULL, &Array::from_iter([req, JsValue::NULL, next.into(), JsValue::NULL].iter()));
-
-    //         match res {
-    //             Ok(val) => {
-    //                 assert!(val.is_undefined());
-    //             }
-    //             Err(err) => {
-    //                 panic!("expected single to return an object: {:?}", err);
-    //             }
-    //         }
-    //     }
-
-    //     // call the single function
-    //     {
-    //         let single = js_sys::Reflect::get(&res, &JsValue::from_str("single")).unwrap();
-    //         let single = js_sys::Function::from(single);
-
-    //         let req = {
-    //             let req = Object::new();
-
-    //             let file = sample_file("foo.txt");
-    //             let body = Object::new();
-    //             js_sys::Reflect::set(&body, &"file".into(), &file).unwrap();
-    //             js_sys::Reflect::set(&req, &"body".into(), &JsValue::from(body)).unwrap();
-
-    //             JsValue::from(req)
-    //         };
-
-    //         // noop next function
-    //         let next = Function::new_no_args("console.log('next called on single')");
-
-    //         let res = single.apply(&JsValue::NULL, &Array::from_iter([req, JsValue::NULL, next.into(), JsValue::NULL].iter()));
-
-    //         match res {
-    //             Ok(val) => {
-    //                 assert!(val.is_undefined());
-    //             }
-    //             Err(err) => {
-    //                 panic!("expected single to return an object: {:?}", err);
-    //             }
-    //         }
-    //     }
-    // }
-
-    // #[allow(dead_code)]
-    // fn sample_file(name: &str) -> File {
-    //     let content = Array::new();
-    //     content.push(&JsValue::from_str("foo"));
-    //     let options = js_sys::Object::new();
-    //     js_sys::Reflect::set(&options, &JsValue::from_str("type"), &JsValue::from_str("text/plain")).unwrap();
-    //     web_sys::File::new_with_u8_array_sequence(&content, name).unwrap()
-    // }
-
-    // #[allow(dead_code)]
-    // #[wasm_bindgen_test]
-    // fn test_try_into() {
-    //     let val = crate::middleware::to_value_from_js_value(&{
-    //         let obj = Object::new();
-    //         JsValue::from(obj)
-    //     })
-    //     .unwrap();
-    //     assert_eq!(*val.get_type(), crate::js_wrapper::Type::Object);
-    // }
+    #[allow(dead_code)]
+    #[wasm_bindgen_test]
+    fn test_try_into() {
+        let val = crate::middleware::to_value_from_js_value(&{
+            let obj = Object::new();
+            JsValue::from(obj)
+        })
+        .unwrap();
+        assert_eq!(*val.get_type(), crate::js_wrapper::Type::Object);
+    }
 }
