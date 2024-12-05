@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use js_sys::{Array, Object};
 use serde::ser::{SerializeMap, SerializeSeq};
-use wasm_bindgen::JsValue;
+use wasm_bindgen::{JsValue, UnwrapThrowExt};
 
 #[derive(Debug, PartialEq)]
 pub enum Type {
@@ -47,7 +47,7 @@ impl JsWrapper {
             JsWrapper::Object(val) => {
                 let obj = Object::new();
                 for (key, value) in val.iter() {
-                    js_sys::Reflect::set(&obj, &JsValue::from_str(key), &value.js_value()).unwrap();
+                    js_sys::Reflect::set(&obj, &JsValue::from_str(key), &value.js_value()).expect_throw("infalliable");
                 }
                 JsValue::from(obj)
             }

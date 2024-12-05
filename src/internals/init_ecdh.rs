@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use layer8_primitives::crypto::base64_to_jwk;
+use wasm_bindgen::UnwrapThrowExt;
 
 use crate::{
     js_wrapper::{JsWrapper, Type, Value},
@@ -42,7 +43,7 @@ pub fn initialize_ecdh(headers: Value, inmem_storage: &mut InMemStorage) -> Resu
             continue;
         }
 
-        let val = val.unwrap();
+        let val = val.expect_throw("infalliable");
         if val.get_type().ne(v) {
             invalid.push(key.as_str());
         }
@@ -155,7 +156,7 @@ mod tests {
     #[allow(dead_code)]
     #[wasm_bindgen_test]
     fn test_initialize_ecdh() {
-        let (server_pri_key, server_pub_key) = generate_key_pair(KeyUse::Ecdh).unwrap();
+        let (server_pri_key, server_pub_key) = generate_key_pair(KeyUse::Ecdh).expect_throw("expected this call to be infallible, file a bug report");
         let mut inmem_storage = InMemStorage {
             ecdh: Ecdh {
                 private_key: server_pri_key.clone(),
