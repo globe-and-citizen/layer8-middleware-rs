@@ -12,9 +12,11 @@ extern "C" {
     pub fn request_set_header(req: &JsValue, key: &str, val: &str);
     pub fn request_set_body(req: &JsValue, body: JsValue);
     pub fn request_set_url(req: &JsValue, url: &str);
+    pub fn request_get_url(req: &JsValue) -> String;
     pub fn request_set_method(req: &JsValue, method: &str);
     pub fn request_headers(req: &JsValue) -> JsValue;
-    pub fn request_get_body_string(req: &JsValue) -> String;
+    #[wasm_bindgen(catch)]
+    pub fn request_get_body_string(req: &JsValue) -> Result<String, JsValue>;
     pub fn request_callbacks(res: &JsValue, symmetric_key: &str, mp_jwt: &str, respond_callback: JsValue);
 
     pub fn response_add_header(res: &JsValue, key: &str, val: &str);

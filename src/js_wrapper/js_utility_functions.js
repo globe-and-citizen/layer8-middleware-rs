@@ -102,6 +102,10 @@ function request_set_url(req, url) {
   req.url = url
 }
 
+function request_get_url(req) {
+  return req.url
+}
+
 function request_set_header(req, key, val) {
   req.setHeader(key, val)
 }
@@ -182,6 +186,7 @@ module.exports = {
   request_set_header,
   request_set_body,
   request_set_url,
+  request_get_url,
   request_set_method,
   request_headers,
   request_callbacks,

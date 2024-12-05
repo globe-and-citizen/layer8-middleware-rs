@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use base64::{self, engine::general_purpose::URL_SAFE as base64_enc_dec, Engine as _};
-use js_sys::{Array, Object, Uint8Array};
+use js_sys::{Array, Function, Object, Uint8Array};
 use mime_sniffer::MimeTypeSniffer;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use serde_json::json;
@@ -17,8 +17,7 @@ use crate::{
         self,
         process_data::{process_data, UrlPath},
     },
-    js_wrapper::custom_js_imports::*,
-    js_wrapper::{self, to_value_from_js_value, JsWrapper, Type, Value},
+    js_wrapper::{self, custom_js_imports::*, to_value_from_js_value, AssetsFunctionsWrapper, JsWrapper, Type, Value},
     storage::INMEM_STORAGE_INSTANCE,
 };
 
@@ -128,8 +127,8 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
     let is_ecdh_init = headers_map.get("x-ecdh-init");
     let client_uuid = headers_map.get("x-client-uuid");
     if client_uuid.is_none()
-        || (is_ecdh_init.is_some() && *is_ecdh_init.unwrap() != JsWrapper::Null)
-        || (is_ecdh_init.is_some() && *is_ecdh_init.unwrap() != JsWrapper::Undefined)
+        || (is_ecdh_init.is_some() && *is_ecdh_init.expect_throw("infalliable") != JsWrapper::Null)
+        || (is_ecdh_init.is_some() && *is_ecdh_init.expect_throw("infalliable") != JsWrapper::Undefined)
     {
         init_ecdh(&res);
 
@@ -140,7 +139,10 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
         return;
     }
 
-    let client_uuid = client_uuid.unwrap().to_string().unwrap();
+    let client_uuid = client_uuid
+        .expect_throw("infalliable")
+        .to_string()
+        .expect_throw("expected client_uuid to be a string; qed");
 
     // get symmetric key for this client
     let symmetric_key = {
@@ -194,7 +196,24 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
     });
     request_callbacks(&res, &sym_key, &mp_jwt, respond_callback_.into_js_value());
 
-    let body = request_get_body_string(&req);
+    let body = match request_get_body_string(&req).ok() {
+        Some(val) => val,
+        None => {
+            // this is not supposed to happen; signal that the data aggregation for the body is supposed to be
+            // called before the tunnel is invoked
+            console_error("The middleware expects the body to be aggregated before the tunnel is invoked: call `app.use(express.json({limit: '100mb'}))` with a sane limit");
+
+            // handing over to the server logic
+            if let Err(e) = js_sys::Function::from(next).call0(&JsValue::NULL) {
+                console_error(&format!("Error invoking next middleware: {e:?}"));
+            }
+            return;
+        }
+    };
+
+    log(&format!("Body is: {:?}", body));
+
+    log("Here 9");
 
     match process_data(&body, &symmetric_key) {
         Ok(processed_req) => {
@@ -275,7 +294,7 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
                             Err(err) => {
                                 if val.is_string() {
                                     // this is used on fetch
-                                    val.as_str().unwrap().to_string()
+                                    val.as_str().expect_throw("expected the __url_path key to be a string; qed").to_string()
                                 } else {
                                     console_error(&format!("expected the __url_path key to be a string: {}", err));
                                     response_set_status(&res, 500);
@@ -311,7 +330,7 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
                         request_set_url(&req, &url_path);
 
                         // rm __url_path from body
-                        req_body.remove("__url_path").unwrap();
+                        _ = req_body.remove("__url_path");
                     }
 
                     if !processed_req.body.is_empty() {
@@ -326,6 +345,8 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
             response_set_status_text(&res, &processed_resp.status_text);
         }
     }
+
+    log(&format!("URL now is: {}", request_get_url(&req)));
 
     // invoking next middleware
     if let Err(e) = js_sys::Function::from(next).call0(&JsValue::NULL) {
@@ -366,7 +387,7 @@ fn respond_callback(res: &JsValue, data: &JsValue, sym_key: String, jwt: String)
 /// The `dest` parameter is the destination where the files will be saved. The destination is expected to be a string.
 #[allow(non_snake_case)]
 #[wasm_bindgen(js_name = multipart)]
-pub fn process_multipart(options: JsValue) -> Object {
+pub fn process_multipart(options: JsValue) -> AssetsFunctionsWrapper {
     let dest = {
         let dest = js_sys::Reflect::get(&options, &JsValue::from_str("dest"))
             .expect("expected dest to be a property")
@@ -380,19 +401,17 @@ pub fn process_multipart(options: JsValue) -> Object {
     let single = single_fn(dest.clone());
     let array = array_fn(dest);
 
-    let return_object = Object::new();
-    let value = JsValue::from(&return_object);
-    js_sys::Reflect::set(&value, &JsValue::from_str("single"), &single).unwrap();
-    js_sys::Reflect::set(&value, &JsValue::from_str("array"), &array).unwrap();
-
-    return_object
+    AssetsFunctionsWrapper {
+        single: Function::from(single),
+        array: Function::from(array),
+    }
 }
 
 /// This function is responsible for serving static files, it takes the resource directory as an argument.
 /// The resource directory is expected to be a string.
 #[allow(non_snake_case)]
 #[wasm_bindgen(js_name = static)]
-pub fn _static(dir: JsValue) -> JsValue {
+pub fn _static(dir: String) -> JsValue {
     let higher_order_fn: Closure<dyn Fn(wasm_bindgen::JsValue, wasm_bindgen::JsValue, wasm_bindgen::JsValue)> =
         Closure::new(move |req, res, next| {
             log("calling serve static");
@@ -403,10 +422,11 @@ pub fn _static(dir: JsValue) -> JsValue {
                 console_error(&format!("Error invoking next middleware: {e:?}"));
             }
         });
+
     higher_order_fn.into_js_value()
 }
 
-fn serve_static(req: &JsValue, res: &JsValue, dir: JsValue) {
+fn serve_static(req: &JsValue, res: &JsValue, dir: String) {
     let return_encrypted_image = |res: &JsValue| {
         response_set_status(res, 200);
         response_set_status_text(res, "OK");
@@ -476,7 +496,7 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: JsValue) {
 
     // The body is expected to be parsed already by the: `app.use(express.json())` middleware
     // also by the time static is called; the middleware function has already decoded the body
-    let body = request_get_body_string(req);
+    let body = request_get_body_string(req).expect_throw("we expect some json string for this call; qed");
 
     let resource_url = match get_url_path(&body).as_string() {
         Some(val) => val,
@@ -500,7 +520,7 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: JsValue) {
 
     // getting the file path
     let path = {
-        let url = Url::parse(&resource_url).unwrap();
+        let url = Url::parse(&resource_url).expect_throw("expected the url_path to be a valid url path, check the __url_path key");
         let mut path = url.path().to_string();
         if path.eq("/") {
             path = "/index.html".to_string();
@@ -521,7 +541,7 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: JsValue) {
             log(&format!("expected the path to be a valid url path: {}", path));
             response_set_status(res, 500);
             response_set_status_text(res, "Internal Server Error");
-            response_end(res, JsValue::from("500 Internal Server Error"));
+            response_end(res, JsValue::from("500 Internal Server Error 1"));
             return;
         }
     };
@@ -532,7 +552,6 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: JsValue) {
     // Say if we have `./pictures/anything/some_file.png`, we want the next iteration to be `./pictures/some_file.png`
     // where 'pictures' is the constant directory provided by the user
     let mut trials = Vec::new();
-    let dir = dir.as_string().expect("expected dir to be a string");
     loop {
         let path_ = format!("./{dir}/{}", path.trim_start_matches("/"));
         match exists_sync(&path_) {
@@ -580,7 +599,7 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: JsValue) {
                 console_error(&format!("Could not read file: {err:?}"));
                 response_set_status(res, 500);
                 response_set_status_text(res, "Internal Server Error");
-                response_end(res, JsValue::from_str("500 Internal Server Error"));
+                response_end(res, JsValue::from_str("500 Internal Server Error 2"));
 
                 return;
             }
@@ -591,7 +610,7 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: JsValue) {
             None => {
                 response_set_status(res, 500);
                 response_set_status_text(res, "Internal Server Error");
-                response_end(res, JsValue::from_str("500 Internal Server Error"));
+                response_end(res, JsValue::from_str("500 Internal Server Error 3"));
 
                 return;
             }
@@ -618,7 +637,7 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: JsValue) {
             console_error(&format!("error encrypting file: {err}"));
             response_set_status(res, 500);
             response_set_status_text(res, "Internal Server Error");
-            response_end(res, JsValue::from_str("500 Internal Server Error"));
+            response_end(res, JsValue::from_str("500 Internal Server Error 4"));
 
             return;
         }
@@ -711,12 +730,20 @@ fn convert_body_to_form_data(req_body: &serde_json::Map<String, serde_json::Valu
                 .append_with_str(k, x)
                 .expect("expected form_data to be a mutable object and the key and value to be valid strings"),
             x if x.eq("Number") => {
-                js_sys::Reflect::set(&form_data, &JsValue::from_str(k), &JsValue::from_f64(x.parse::<f64>().unwrap()))
-                    .expect("expected form_data to be a mutable object");
+                js_sys::Reflect::set(
+                    &form_data,
+                    &JsValue::from_str(k),
+                    &JsValue::from_f64(x.parse::<f64>().expect_throw("expected the value to be a valid number; qed")),
+                )
+                .expect("expected form_data to be a mutable object");
             }
             x if x.eq("Boolean") => {
-                js_sys::Reflect::set(&form_data, &JsValue::from_str(k), &JsValue::from_bool(x.parse::<bool>().unwrap()))
-                    .expect("expected form_data to be a mutable object");
+                js_sys::Reflect::set(
+                    &form_data,
+                    &JsValue::from_str(k),
+                    &JsValue::from_bool(x.parse::<bool>().expect_throw("expected the value to be a valid boolean; qed")),
+                )
+                .expect("expected form_data to be a mutable object");
             }
             _ => {}
         }
