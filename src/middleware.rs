@@ -188,9 +188,7 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
         }
     };
 
-    let sym_key = serde_json::to_string(&symmetric_key)
-        .map(|val| val)
-        .expect("expected symmetric key to be serializable to a string; qed");
+    let sym_key = serde_json::to_string(&symmetric_key).expect("expected symmetric key to be serializable to a string; qed");
     let respond_callback_: Closure<dyn Fn(JsValue, JsValue, String, String)> = Closure::new(|res, data, sym_key, jwt| {
         respond_callback(&res, &data, sym_key, jwt);
     });
