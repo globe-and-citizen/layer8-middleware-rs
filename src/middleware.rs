@@ -209,10 +209,6 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
         }
     };
 
-    log(&format!("Body is: {:?}", body));
-
-    log("Here 9");
-
     match process_data(&body, &symmetric_key) {
         Ok(processed_req) => {
             log("Successfully processed data!");
@@ -222,7 +218,7 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
             // propagate the request's original method
             request_set_method(&req, &processed_req.method);
 
-            let mut req_body = match serde_json::from_slice::<serde_json::Map<String, serde_json::Value>>(&processed_req.body) {
+            let req_body = match serde_json::from_slice::<serde_json::Map<String, serde_json::Value>>(&processed_req.body) {
                 Ok(val) => val,
                 Err(err) => {
                     if !processed_req.body.is_empty() {
@@ -243,25 +239,12 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
 
             match processed_req.headers.get("content-type") {
                 Some(x) if x.eq("application/layer8.buffer+json") => {
-                    let url_ = match get_url_path_from_body(&req_body) {
-                        Some(val) => val,
-                        None => {
-                            console_error("expected the body to have a __url_path key, this is used to determine the url path for the request");
-                            response_set_status(&res, 500);
-                            response_set_body(
-                                &res,
-                                b"expected the body to have a __url_path key, this is used to determine the url path for the request",
-                            );
-
-                            // invoking next middleware
-                            if let Err(e) = js_sys::Function::from(next).call0(&JsValue::NULL) {
-                                console_error(&format!("Error invoking next middleware: {e:?}"));
-                            }
-                            return;
+                    match processed_req.url_path {
+                        Some(val) => {
+                            request_set_url(&req, &val);
                         }
-                    };
-
-                    request_set_url(&req, &url_);
+                        _ => {}
+                    }
 
                     let form_data = match convert_body_to_form_data(&req_body) {
                         Ok(val) => val,
@@ -285,50 +268,11 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
                 }
 
                 _ => {
-                    if let Some(val) = req_body.get("__url_path") {
-                        let url_path = match serde_json::from_value::<UrlPath>(val.clone()) {
-                            // this is used on upload
-                            Ok(val) => val._type.value,
-                            Err(err) => {
-                                if val.is_string() {
-                                    // this is used on fetch
-                                    val.as_str().expect_throw("expected the __url_path key to be a string; qed").to_string()
-                                } else {
-                                    console_error(&format!("expected the __url_path key to be a string: {}", err));
-                                    response_set_status(&res, 500);
-                                    response_set_body(&res, b"expected the __url_path key to be a string");
-
-                                    // invoking next middleware
-                                    if let Err(e) = js_sys::Function::from(next).call0(&JsValue::NULL) {
-                                        console_error(&format!("Error invoking next middleware: {e:?}"));
-                                    }
-                                    return;
-                                }
-                            }
-                        };
-
-                        let mut parsed_url = match url::Url::parse(&url_path) {
-                            Ok(val) => val,
-                            Err(err) => {
-                                console_error(&format!("error parsing url: {}", err));
-                                response_set_status(&res, 500);
-                                response_set_body(&res, b"error parsing url");
-
-                                // invoking next middleware
-                                if let Err(e) = js_sys::Function::from(next).call0(&JsValue::NULL) {
-                                    console_error(&format!("Error invoking next middleware: {e:?}"));
-                                }
-                                return;
-                            }
-                        };
-
-                        let query_pairs: HashMap<_, _> = parsed_url.query_pairs().into_owned().collect();
-                        let query = form_urlencoded::Serializer::new(String::new()).extend_pairs(query_pairs.iter()).finish();
-                        parsed_url.set_query(Some(&query));
-                        request_set_url(&req, &url_path);
-
-                        // rm __url_path from body
-                        _ = req_body.remove("__url_path");
+                    match processed_req.url_path {
+                        Some(val) => {
+                            request_set_url(&req, &val);
+                        }
+                        _ => {}
                     }
 
                     if !processed_req.body.is_empty() {
@@ -344,8 +288,6 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
         }
     }
 
-    log(&format!("URL now is: {}", request_get_url(&req)));
-
     // invoking next middleware
     if let Err(e) = js_sys::Function::from(next).call0(&JsValue::NULL) {
         console_error(&format!("Error invoking next middleware: {e:?}"));
@@ -353,11 +295,11 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
 }
 
 fn respond_callback(res: &JsValue, data: &JsValue, sym_key: String, jwt: String) {
-    let sym_key = serde_json::from_str::<Jwk>(&sym_key).expect("expected sym_key to be a valid json object; qed"); // infalliable, we know the data is a valid json object
+    let sym_key = serde_json::from_str::<Jwk>(&sym_key).expect_throw("expected sym_key to be a valid json object; qed"); // infalliable, we know the data is a valid json object
 
     let mut data_ = Vec::new();
     if data.is_string() {
-        data_ = data.as_string().expect("expected data to be a string").as_bytes().to_vec();
+        data_ = data.as_string().expect_throw("expected data to be a string").as_bytes().to_vec();
     } else if data.is_object() {
         data_ = as_json_string(data).as_bytes().to_vec();
     } else {
@@ -388,9 +330,9 @@ fn respond_callback(res: &JsValue, data: &JsValue, sym_key: String, jwt: String)
 pub fn process_multipart(options: JsValue) -> AssetsFunctionsWrapper {
     let dest = {
         let dest = js_sys::Reflect::get(&options, &JsValue::from_str("dest"))
-            .expect("expected dest to be a property")
+            .expect_throw("expected dest to be a property")
             .as_string()
-            .expect("expected dest to be a string")
+            .expect_throw("expected dest to be a string")
             .trim_matches('/')
             .to_string();
         JsValue::from_str(&dest)
@@ -494,15 +436,7 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: String) {
 
     // The body is expected to be parsed already by the: `app.use(express.json())` middleware
     // also by the time static is called; the middleware function has already decoded the body
-    let body = request_get_body_string(req).expect_throw("we expect some json string for this call; qed");
-
-    let resource_url = match get_url_path(&body).as_string() {
-        Some(val) => val,
-        None => {
-            console_error(&format!("Error reading the resource: {}", body));
-            return return_encrypted_image(res);
-        }
-    };
+    let resource_url = request_get_url(&req);
 
     let parsed_url = url::Url::parse(&resource_url).expect("expected the url_path to be a valid url path, check the __url_path key");
 
@@ -653,31 +587,6 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: String) {
     .expect("RoundtripEnvelope serializes to json");
 
     response_end(res, JsValue::from_str(&data));
-}
-
-fn get_url_path_from_body(req_body: &serde_json::Map<String, serde_json::Value>) -> Option<String> {
-    for (_, v) in req_body {
-        for val in v.as_array().expect("expected v to be an array") {
-            let val = val.as_object().expect("expected val to be an object");
-            if val
-                .get("_type")
-                .expect("expected val to have a _type key")
-                .as_str()
-                .expect("expected _type to be a string")
-                == "String"
-            {
-                return Some(
-                    val.get("value")
-                        .expect("expected val to have a value key")
-                        .as_str()
-                        .expect("expected value to be a string")
-                        .to_string(),
-                );
-            }
-        }
-    }
-
-    None
 }
 
 fn convert_body_to_form_data(req_body: &serde_json::Map<String, serde_json::Value>) -> Result<JsValue, String> {

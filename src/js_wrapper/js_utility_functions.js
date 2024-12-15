@@ -172,12 +172,6 @@ function response_end(res, data) {
   res.end(data)
 }
 
-// FIXME: hacked around and settled on this
-function get_url_path(js_str) {
-  const val = JSON.parse(js_str);
-  return JSON.parse(val).__url_path
-}
-
 module.exports = {
   single_fn,
   array_fn,
@@ -199,6 +193,4 @@ module.exports = {
   response_get_status,
   response_get_status_text,
   response_end,
-
-  get_url_path
 }

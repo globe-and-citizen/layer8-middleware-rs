@@ -28,5 +28,5 @@ extern "C" {
     pub fn response_get_status_text(res: &JsValue) -> JsValue;
     pub fn response_end(res: &JsValue, body: JsValue);
 
-    pub fn get_url_path(js_str: &str) -> JsValue;
+   
 }

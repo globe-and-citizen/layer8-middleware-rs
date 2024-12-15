@@ -95,6 +95,7 @@ mod tests {
                     method: "GET".to_string(),
                     headers: HashMap::from([("x-test".to_string(), "test".to_string())]),
                     body: serde_json::to_vec(&HashMap::from([("test".to_string(), "test".to_string())])).unwrap(),
+                    url_path: None,
                 },
                 shared_secret.clone(),
             );
@@ -121,6 +122,7 @@ mod tests {
                     method: "GET".to_string(),
                     headers: HashMap::from([("x-test".to_string(), "test".to_string())]),
                     body: serde_json::to_vec(&HashMap::from([("test".to_string(), "test".to_string())])).unwrap(),
+                    url_path: None,
                 },
                 shared_secret2.clone(),
             );
