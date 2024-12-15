@@ -50,17 +50,6 @@ pub(crate) fn process_data(raw_data: &str, key: &Jwk) -> Result<Request, Respons
     })
 }
 
-#[derive(Deserialize)]
-pub struct UrlPath {
-    pub _type: TypeInformation,
-}
-
-#[derive(Deserialize)]
-pub struct TypeInformation {
-    pub _type: String,
-    pub value: String,
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;

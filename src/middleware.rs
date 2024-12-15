@@ -13,10 +13,7 @@ use layer8_primitives::{crypto::Jwk, types::Response};
 
 use crate::{
     encrypted_image,
-    internals::{
-        self,
-        process_data::{process_data, UrlPath},
-    },
+    internals::{self, process_data::process_data},
     js_wrapper::{self, custom_js_imports::*, to_value_from_js_value, AssetsFunctionsWrapper, JsWrapper, Type, Value},
     storage::INMEM_STORAGE_INSTANCE,
 };

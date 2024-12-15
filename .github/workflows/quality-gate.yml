@@ -59,9 +59,9 @@ jobs:
     test:
         strategy:
           matrix:
-            platform: [macos-latest]
+            platform: [ubuntu-latest, macos-latest]
             toolchain: [stable]
-        runs-on: ${{ matrix.platform }}     
+        runs-on: ${{ matrix.platform }}
         steps:
           - uses: actions/checkout@v2
           - name: "${{ matrix.toolchain }}"
