@@ -236,11 +236,8 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
 
             match processed_req.headers.get("content-type") {
                 Some(x) if x.eq("application/layer8.buffer+json") => {
-                    match processed_req.url_path {
-                        Some(val) => {
-                            request_set_url(&req, &val);
-                        }
-                        _ => {}
+                    if let Some(val) = processed_req.url_path {
+                        request_set_url(&req, &val);
                     }
 
                     let form_data = match convert_body_to_form_data(&req_body) {
@@ -265,11 +262,8 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
                 }
 
                 _ => {
-                    match processed_req.url_path {
-                        Some(val) => {
-                            request_set_url(&req, &val);
-                        }
-                        _ => {}
+                    if let Some(val) = processed_req.url_path {
+                        request_set_url(&req, &val);
                     }
 
                     if !processed_req.body.is_empty() {
@@ -433,7 +427,7 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: String) {
 
     // The body is expected to be parsed already by the: `app.use(express.json())` middleware
     // also by the time static is called; the middleware function has already decoded the body
-    let resource_url = request_get_url(&req);
+    let resource_url = request_get_url(req);
 
     let parsed_url = url::Url::parse(&resource_url).expect("expected the url_path to be a valid url path, check the __url_path key");
 
