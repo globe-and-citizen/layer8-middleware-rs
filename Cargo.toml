@@ -5,6 +5,7 @@ version = "0.1.21"
 edition = "2021"
 authors = ["Osoro Bironga <fanosoro@gmail.com>"]
 repository = "github.com/muse254/layer8-middleware-rs"
+description = "This repository contains a Rust implementation of the Layer8 Middleware. Analogous to <https://github.com/globe-and-citizen/layer8-middleware>"
 license = "GNU GPLv2"
 readme = "README.md"
 categories = ["wasm"]
