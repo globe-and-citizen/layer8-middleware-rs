@@ -31,7 +31,11 @@ jobs:
           fi
           cargo install wasm-pack
           wasm-pack build --target nodejs --release
-          brew install gawk
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            brew install gawk
+          else
+            sudo apt-get install gawk -yba
+          fi
           gawk '{ if (NR == 14) { print $0 "\"./snippets/*\", "; } else { print $0; } }' ./pkg/package.json > temp.json && mv temp.json ./pkg/package.json 
          
       - name: Install npm
