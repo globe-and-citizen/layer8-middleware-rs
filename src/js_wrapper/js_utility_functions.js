@@ -8,16 +8,14 @@ function single_fn(dest) {
   // This higher order function is used to dynamically provide the filename
   return function (filename) {
     // This is the middleware function that will be used to save the file
-    return function (req, _res, next) {
+    return function (req, _res) {
       // if the destination directory does not exist, create it
       if (!fs.existsSync(dest)) {
         fs.mkdirSync(dest, { recursive: true })
       }
 
       if (req === null || req.body === undefined || req.body === null) {
-        if (next) {
-          next()
-        }
+        call_next(arguments)
         return
       }
 
@@ -35,9 +33,7 @@ function single_fn(dest) {
 
       // Continue to the next middleware/handler
       console.log("Successfully saved static file")
-      if (next) {
-        next()
-      }
+      call_next(arguments)
     }
   }
 }
@@ -50,24 +46,20 @@ function array_fn(dest) {
   // This higher order function is used to dynamically provide the filename
   return function (fileCollectionName) {
     // This is the middleware function that will be used to save the file
-    return function (req, _res, next) {
+    return function (req, _res) {
       if (!fs.existsSync(dest)) {
         fs.mkdirSync(dest, { recursive: true })
       }
 
       if (req.body === undefined || req.body === null) {
-        if (next) {
-          next()
-        }
+        call_next(arguments)
         return
       }
 
       req.body = uint8ArrayToString(req.body)
       let files = JSON.parse(req.body)[fileCollectionName]
       if (files === undefined) {
-        if (next) {
-          next()
-        }
+        call_next(arguments)
         return
       }
 
@@ -89,9 +81,16 @@ function array_fn(dest) {
 
       // Continue to the next middleware/handler
       console.log("Successfully saved static files")
-      if (next) {
-        next()
-      }
+      call_next(arguments)
+    }
+  }
+}
+
+function call_next(args) {
+  // we expect an overload on the third argument to be next middleware call
+  if (args.length >= 3) {
+    if (args[2]) {
+      args[2]()
     }
   }
 }
