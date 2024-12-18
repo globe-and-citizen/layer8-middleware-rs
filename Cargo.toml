@@ -1,10 +1,11 @@
 [package]
 name = "layer8-middleware-rs"
 # The versions have no bearing, only for the PoC before migrating to Org account
-version = "0.1.20"
+version = "0.1.21"
 edition = "2021"
 authors = ["Osoro Bironga <fanosoro@gmail.com>"]
 repository = "github.com/muse254/layer8-middleware-rs"
+description = "This repository contains a Rust implementation of the Layer8 Middleware. Analogous to <https://github.com/globe-and-citizen/layer8-middleware>"
 license = "GNU GPLv2"
 readme = "README.md"
 categories = ["wasm"]
@@ -15,7 +16,7 @@ opt-level = "z"
 lto = true
 debug = false
 panic = "abort"
-# strip = "debuginfo"
+strip = "debuginfo"
 
 [lib]
 crate-type = ["cdylib"]

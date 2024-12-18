@@ -6,8 +6,7 @@ on:
 
 jobs:
   publish:
-    # issues working with ubuntu-latest, added 'env'
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
@@ -16,7 +15,7 @@ jobs:
       - name: Set up Rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: 1.81.0  # Related: <https://github.com/cloudflare/workers-rs/issues/668>, <https://github.com/cloudflare/workers-sdk/issues/7208>
+          toolchain: stable
           override: true
           override-file: Cargo.toml
           target: wasm32-unknown-unknown
@@ -24,10 +23,12 @@ jobs:
       - name: Build
         run: |
           # If macOs install llvm with brew
-          brew install llvm
-          export PATH="/opt/homebrew/opt/llvm/bin:$PATH"
-          export CC=/opt/homebrew/opt/llvm/bin/clang
-          export AR=/opt/homebrew/opt/llvm/bin/llvm-ar
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            brew install llvm
+            export PATH="/opt/homebrew/opt/llvm/bin:$PATH"
+            export CC=/opt/homebrew/opt/llvm/bin/clang
+            export AR=/opt/homebrew/opt/llvm/bin/llvm-ar
+          fi
           cargo install wasm-pack
           wasm-pack build --target nodejs --release
           brew install gawk

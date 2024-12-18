@@ -50,17 +50,6 @@ pub(crate) fn process_data(raw_data: &str, key: &Jwk) -> Result<Request, Respons
     })
 }
 
-#[derive(Deserialize)]
-pub struct UrlPath {
-    pub _type: TypeInformation,
-}
-
-#[derive(Deserialize)]
-pub struct TypeInformation {
-    pub _type: String,
-    pub value: String,
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -95,6 +84,7 @@ mod tests {
                     method: "GET".to_string(),
                     headers: HashMap::from([("x-test".to_string(), "test".to_string())]),
                     body: serde_json::to_vec(&HashMap::from([("test".to_string(), "test".to_string())])).unwrap(),
+                    url_path: None,
                 },
                 shared_secret.clone(),
             );
@@ -121,6 +111,7 @@ mod tests {
                     method: "GET".to_string(),
                     headers: HashMap::from([("x-test".to_string(), "test".to_string())]),
                     body: serde_json::to_vec(&HashMap::from([("test".to_string(), "test".to_string())])).unwrap(),
+                    url_path: None,
                 },
                 shared_secret2.clone(),
             );

@@ -8,20 +8,19 @@ function single_fn(dest) {
   // This higher order function is used to dynamically provide the filename
   return function (filename) {
     // This is the middleware function that will be used to save the file
-    return function (req, _res, next) {
+    return function (req, _res) {
       // if the destination directory does not exist, create it
       if (!fs.existsSync(dest)) {
         fs.mkdirSync(dest, { recursive: true })
       }
 
       if (req === null || req.body === undefined || req.body === null) {
-        if (next !== undefined || next !== null) {
-          next()
-        }
+        call_next(arguments)
         return
       }
 
       // Create a Uint8Array from the buffer
+      req.body = uint8ArrayToString(req.body)
       let file = JSON.parse(req.body)[filename];
       let data = Buffer.from(file.buff, "base64");
 
@@ -34,9 +33,7 @@ function single_fn(dest) {
 
       // Continue to the next middleware/handler
       console.log("Successfully saved static file")
-      if (next !== undefined || next !== null) {
-        next()
-      }
+      call_next(arguments)
     }
   }
 }
@@ -49,23 +46,20 @@ function array_fn(dest) {
   // This higher order function is used to dynamically provide the filename
   return function (fileCollectionName) {
     // This is the middleware function that will be used to save the file
-    return function (req, _res, next) {
+    return function (req, _res) {
       if (!fs.existsSync(dest)) {
         fs.mkdirSync(dest, { recursive: true })
       }
 
       if (req.body === undefined || req.body === null) {
-        if (next !== undefined || next !== null) {
-          next()
-        }
+        call_next(arguments)
         return
       }
 
+      req.body = uint8ArrayToString(req.body)
       let files = JSON.parse(req.body)[fileCollectionName]
       if (files === undefined) {
-        if (next !== undefined || next !== null) {
-          next()
-        }
+        call_next(arguments)
         return
       }
 
@@ -87,9 +81,16 @@ function array_fn(dest) {
 
       // Continue to the next middleware/handler
       console.log("Successfully saved static files")
-      if (next !== undefined || next !== null) {
-        next()
-      }
+      call_next(arguments)
+    }
+  }
+}
+
+function call_next(args) {
+  // we expect an overload on the third argument to be next middleware call
+  if (args.length >= 3) {
+    if (args[2]) {
+      args[2]()
     }
   }
 }
@@ -102,15 +103,26 @@ function request_set_url(req, url) {
   req.url = url
 }
 
-function request_get_url(req) {
-  return req.url
-}
-
 function request_set_header(req, key, val) {
   req.setHeader(key, val)
 }
 
+function uint8ArrayToString(data) {
+  if (data instanceof Uint8Array) {
+    const uint8Array = new Uint8Array(data)
+    const decoder = new TextDecoder();
+    const string_ = decoder.decode(uint8Array)
+    return string_
+  }
+
+  return data
+}
+
 function request_set_body(req, body) {
+  if (req.headers["content-type"] === "application/json") {
+    body = uint8ArrayToString(body)
+  }
+
   req.body = body
 }
 
@@ -122,8 +134,8 @@ function request_headers(req) {
   return req.headers
 }
 
-function request_get_body_string(req) {
-  return JSON.stringify(req.body)
+function request_get_body(req) {
+  return req.body
 }
 
 function request_callbacks(res, sym_key, mp_jwt, respond_callback) {
@@ -172,12 +184,6 @@ function response_end(res, data) {
   res.end(data)
 }
 
-// FIXME: hacked around and settled on this
-function get_url_path(js_str) {
-  const val = JSON.parse(js_str);
-  return JSON.parse(val).__url_path
-}
-
 module.exports = {
   single_fn,
   array_fn,
@@ -186,11 +192,10 @@ module.exports = {
   request_set_header,
   request_set_body,
   request_set_url,
-  request_get_url,
   request_set_method,
   request_headers,
   request_callbacks,
-  request_get_body_string,
+  request_get_body,
   response_add_header,
   response_set_status,
   response_set_status_text,
@@ -199,6 +204,4 @@ module.exports = {
   response_get_status,
   response_get_status_text,
   response_end,
-
-  get_url_path
 }
