@@ -115,6 +115,7 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
                 response_set_status_text(resp, "ECDH Successfully Completed!");
                 response_add_header(resp, "mp-JWT", &res.mp_jwt);
                 response_add_header(resp, "server_pubKeyECDH", &res.server_public_key);
+                response_set_body(resp, res.server_public_key.as_bytes());
             }
             Err(err) => {
                 console_error(&err);
