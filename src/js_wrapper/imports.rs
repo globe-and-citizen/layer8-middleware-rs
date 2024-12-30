@@ -22,9 +22,8 @@ extern "C" {
     pub fn response_set_status(res: &JsValue, status: u16);
     pub fn response_set_status_text(res: &JsValue, status_text: &str);
     pub fn response_set_body(res: &JsValue, body: &[u8]);
+    pub fn response_set_body_end(res: &JsValue, body: &[u8]);
     pub fn response_get_headers(res: &JsValue) -> JsValue;
     pub fn response_get_status(res: &JsValue) -> JsValue;
     pub fn response_get_status_text(res: &JsValue) -> JsValue;
-    pub fn response_end(res: &JsValue, body: JsValue);
-
 }

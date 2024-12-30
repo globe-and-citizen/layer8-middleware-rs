@@ -168,6 +168,9 @@ function response_set_body(res, body) {
   res.body = body
 }
 
+function response_set_body_end(res, body) {
+  res.end(body)
+}
 
 function response_get_headers(res) {
   return res.headers
@@ -179,10 +182,6 @@ function response_get_status(res) {
 
 function response_get_status_text(res) {
   return res.statusMessage
-}
-
-function response_end(res, data) {
-  res.end(data)
 }
 
 module.exports = {
@@ -201,8 +200,8 @@ module.exports = {
   response_set_status,
   response_set_status_text,
   response_set_body,
+  response_set_body_end,
   response_get_headers,
   response_get_status,
   response_get_status_text,
-  response_end,
 }

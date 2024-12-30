@@ -115,7 +115,7 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
                 response_set_status_text(resp, "ECDH Successfully Completed!");
                 response_add_header(resp, "mp-JWT", &res.mp_jwt);
                 response_add_header(resp, "server_pubKeyECDH", &res.server_public_key);
-                response_set_body(resp, res.server_public_key.as_bytes());
+                response_set_body_end(resp, res.server_public_key.as_bytes());
             }
             Err(err) => {
                 console_error(&err);
@@ -324,7 +324,7 @@ fn respond_callback(res: &JsValue, data: &JsValue, sym_key: String, jwt: String)
     })
     .to_string();
 
-    response_end(res, JsValue::from_str(&data));
+    response_set_body_end(res, data.as_bytes());
 }
 
 /// This function processes the multipart form data, it returns an object with two functions: `single` and `array`
@@ -377,7 +377,7 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: String) {
         response_set_status(res, 200);
         response_set_status_text(res, "OK");
         response_add_header(res, "content-type", "image/png");
-        response_end(res, JsValue::from(encrypted_image::ENCRYPTED_IMAGE_DATA.to_vec()));
+        response_set_body_end(res, encrypted_image::ENCRYPTED_IMAGE_DATA);
     };
 
     let headers_map = {
@@ -488,8 +488,7 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: String) {
             log(&format!("expected the path to be a valid url path: {}", path));
             response_set_status(res, 500);
             response_set_status_text(res, "Internal Server Error");
-            response_end(res, JsValue::from("500 Internal Server Error 1"));
-            return;
+            return response_set_body_end(res, b"500 Internal Server Error 1");
         }
     };
 
@@ -511,8 +510,7 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: String) {
                 }
             }
             Err(err) => {
-                console_error(&format!("Could not call `fs.existsSync` API: {:?}", err.as_string()));
-                return;
+                return console_error(&format!("Could not call `fs.existsSync` API: {:?}", err.as_string()));
             }
         };
 
@@ -527,8 +525,7 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: String) {
             log(&format!("Path(s) traversed and not found: {trials:?}"));
             response_set_status(res, 404);
             response_set_status_text(res, "404 Not Found");
-            response_end(res, JsValue::from(format!("Cannot GET {trials:?}")));
-            return;
+            return response_set_body_end(res, format!("Cannot GET {trials:?}").as_bytes());
         }
 
         path = parts.join("/");
@@ -546,9 +543,7 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: String) {
                 console_error(&format!("Could not read file: {err:?}"));
                 response_set_status(res, 500);
                 response_set_status_text(res, "Internal Server Error");
-                response_end(res, JsValue::from_str("500 Internal Server Error 2"));
-
-                return;
+                return response_set_body_end(res, b"500 Internal Server Error");
             }
         };
 
@@ -557,9 +552,7 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: String) {
             None => {
                 response_set_status(res, 500);
                 response_set_status_text(res, "Internal Server Error");
-                response_end(res, JsValue::from_str("500 Internal Server Error 3"));
-
-                return;
+                return response_set_body_end(res, b"500 Internal Server Error");
             }
         };
 
@@ -584,8 +577,7 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: String) {
             console_error(&format!("error encrypting file: {err}"));
             response_set_status(res, 500);
             response_set_status_text(res, "Internal Server Error");
-            response_end(res, JsValue::from_str("500 Internal Server Error 4"));
-
+            response_set_body_end(res, b"500 Internal Server Error");
             return;
         }
     };
@@ -601,7 +593,9 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: String) {
     })
     .expect("RoundtripEnvelope serializes to json");
 
-    response_end(res, JsValue::from_str(&data));
+    log("HERE 1");
+
+    response_set_body_end(res, data.as_bytes());
 }
 
 fn convert_body_to_form_data(req_body: &serde_json::Map<String, serde_json::Value>) -> Result<JsValue, String> {
