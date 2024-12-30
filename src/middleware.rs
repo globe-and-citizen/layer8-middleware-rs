@@ -593,8 +593,6 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: String) {
     })
     .expect("RoundtripEnvelope serializes to json");
 
-    log("HERE 1");
-
     response_set_body_end(res, data.as_bytes());
 }
 
