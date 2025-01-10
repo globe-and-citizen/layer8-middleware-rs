@@ -10,6 +10,7 @@ use wasm_bindgen::prelude::*;
 use web_sys::{File, FormData};
 
 use layer8_primitives::{
+    compression::{decode_gzip_and_decompress_b64, decompress_data_gzip},
     crypto::Jwk,
     types::{Response, ServeStatic},
 };
@@ -344,8 +345,24 @@ pub fn process_multipart(options: JsValue) -> AssetsFunctionsWrapper {
         JsValue::from_str(&dest)
     };
 
-    let single = single_fn(dest.clone());
-    let array = array_fn(dest);
+    let decompress_fn: Closure<dyn Fn(wasm_bindgen::JsValue) -> wasm_bindgen::JsValue> = Closure::new(move |data: JsValue| {
+         match decode_gzip_and_decompress_b64(&(data.as_string().expect_throw("expected data to be a string; qed"))) {
+            Ok(val) => Uint8Array::from(val.as_slice()).into(),
+            Err(err) => {
+                // we can check if we can return the data as is
+                if err.eq("invalid gzip header") {
+                    return data;
+                }
+
+                console_error(&format!("error decoding and decompressing data: {err}"));
+                return JsValue::null();
+            }
+        }     
+    });
+
+    let decompress_fn = decompress_fn.into_js_value();
+    let single = single_fn(dest.clone(), decompress_fn.clone());
+    let array = array_fn(dest, decompress_fn);
 
     AssetsFunctionsWrapper {
         single: Function::from(single),

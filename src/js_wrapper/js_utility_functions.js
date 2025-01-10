@@ -1,6 +1,6 @@
 const fs = require('fs');
 
-function single_fn(dest) {
+function single_fn(dest, decompress_fn) {
   if (dest === '') {
     dest = 'tmp'
   }
@@ -22,7 +22,7 @@ function single_fn(dest) {
       // Create a Uint8Array from the buffer
       req.body = uint8ArrayToString(req.body)
       let file = JSON.parse(req.body)[filename];
-      let data = Buffer.from(file.buff, "base64");
+      let data = decompress_fn(file.buff);
 
       // Write the file to the destination directory
       const filePath = `${dest}/${file.name}`
@@ -38,7 +38,7 @@ function single_fn(dest) {
   }
 }
 
-function array_fn(dest) {
+function array_fn(dest, decompress_fn) {
   if (dest === '') {
     dest = 'tmp'
   }
@@ -69,12 +69,10 @@ function array_fn(dest) {
           continue
         }
 
-        file.arrayBuffer().then(buffer => {
-          const uint8Array = new Uint8Array(buffer)
-          const filePath = `${dest}/${file.name}`
-          fs.writeFileSync(filePath, uint8Array)
-          fileArray.push(file)
-        })
+        let data = decompress_fn(file.buff)
+        const filePath = `${dest}/${file.name}`
+        fs.writeFileSync(filePath, data)
+        fileArray.push(file)
       }
 
       req.files = fileArray

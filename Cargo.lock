@@ -188,6 +188,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "crc32fast"
+version = "1.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a97769d94ddab943e4510d138150169a2758b5ef3eb191a9ee688de3e23ef7b3"
+dependencies = [
+ "cfg-if",
+]
+
+[[package]]
 name = "crypto-common"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -257,6 +266,16 @@ name = "fastrand"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
+
+[[package]]
+name = "flate2"
+version = "1.0.35"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c936bfdafb507ebbf50b8074c54fa31c5be9a1e7e5f467dd659697041407d07c"
+dependencies = [
+ "crc32fast",
+ "miniz_oxide",
+]
 
 [[package]]
 name = "fnv"
@@ -709,7 +728,7 @@ dependencies = [
 
 [[package]]
 name = "layer8-middleware-rs"
-version = "0.1.23"
+version = "0.1.24"
 dependencies = [
  "base64 0.22.1",
  "form_urlencoded",
@@ -730,10 +749,11 @@ dependencies = [
 [[package]]
 name = "layer8-primitives"
 version = "0.1.0"
-source = "git+https://github.com/muse254/layer8-primitives-rs.git?branch=main#54b020da89340327fba5945dfdba65270373c5bb"
+source = "git+https://github.com/globe-and-citizen/layer8-primitives-rs.git?branch=osoro%2Ffeat%2Ffile-compression#ed02f9dbb5631f19e13681d23e65caab314ac387"
 dependencies = [
  "aes-gcm",
  "base64 0.22.1",
+ "flate2",
  "rand",
  "reqwest",
  "secp256k1",
