@@ -5,8 +5,8 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsValue;
 #[wasm_bindgen(module = "/src/js_wrapper/js_utility_functions.js")]
 extern "C" {
-    pub fn array_fn(dest: JsValue) -> JsValue;
-    pub fn single_fn(dest: JsValue) -> JsValue;
+    pub fn array_fn(dest: JsValue, decompress_fn: JsValue) -> JsValue;
+    pub fn single_fn(dest: JsValue, decompress_fn: JsValue) -> JsValue;
     pub fn as_json_string(val: &JsValue) -> String;
 
     pub fn request_set_header(req: &JsValue, key: &str, val: &str);

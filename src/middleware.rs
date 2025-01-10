@@ -10,6 +10,7 @@ use wasm_bindgen::prelude::*;
 use web_sys::{File, FormData};
 
 use layer8_primitives::{
+    compression::{compress_data_gzip, decode_b64_and_decompress_gzip},
     crypto::Jwk,
     types::{Response, ServeStatic},
 };
@@ -344,8 +345,24 @@ pub fn process_multipart(options: JsValue) -> AssetsFunctionsWrapper {
         JsValue::from_str(&dest)
     };
 
-    let single = single_fn(dest.clone());
-    let array = array_fn(dest);
+    let decompress_fn: Closure<dyn Fn(wasm_bindgen::JsValue) -> wasm_bindgen::JsValue> = Closure::new(move |data: JsValue| {
+        match decode_b64_and_decompress_gzip(&(data.as_string().expect_throw("expected data to be a string; qed"))) {
+            Ok(val) => Uint8Array::from(val.as_slice()).into(),
+            Err(err) => {
+                // we can check if we can return the data as is
+                if err.eq("invalid gzip header") {
+                    return data;
+                }
+
+                console_error(&format!("error decoding and decompressing data: {err}"));
+                JsValue::null()
+            }
+        }
+    });
+
+    let decompress_fn = decompress_fn.into_js_value();
+    let single = single_fn(dest.clone(), decompress_fn.clone());
+    let array = array_fn(dest, decompress_fn);
 
     AssetsFunctionsWrapper {
         single: Function::from(single),
@@ -559,10 +576,21 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: String) {
         array_buffer.to_vec()
     };
 
-    let mime_type = data.sniff_mime_type().unwrap_or("application/octet-stream");
+    let mime_type = data.sniff_mime_type().unwrap_or("application/octet-stream").to_string();
+
+    // compress the file
+    let data = match compress_data_gzip(&data) {
+        Ok(val) => val,
+        Err(err) => {
+            console_error(&format!("error compressing file: {err}"));
+            response_set_status(res, 500);
+            response_set_status_text(res, "Internal Server Error");
+            return response_set_body_end(res, b"500 Internal Server Error");
+        }
+    };
 
     let js_res = Response {
-        body: data.clone(),
+        body: data,
         status: 200,
         status_text: "OK".to_string(),
         headers: Vec::from([("Content-Type".to_string(), mime_type.to_string())]),
