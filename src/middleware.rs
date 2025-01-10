@@ -10,7 +10,7 @@ use wasm_bindgen::prelude::*;
 use web_sys::{File, FormData};
 
 use layer8_primitives::{
-    compression::{decode_gzip_and_decompress_b64, decompress_data_gzip},
+    compression::decode_b64_and_decompress_gzip,
     crypto::Jwk,
     types::{Response, ServeStatic},
 };
@@ -346,7 +346,7 @@ pub fn process_multipart(options: JsValue) -> AssetsFunctionsWrapper {
     };
 
     let decompress_fn: Closure<dyn Fn(wasm_bindgen::JsValue) -> wasm_bindgen::JsValue> = Closure::new(move |data: JsValue| {
-         match decode_gzip_and_decompress_b64(&(data.as_string().expect_throw("expected data to be a string; qed"))) {
+        match decode_b64_and_decompress_gzip(&(data.as_string().expect_throw("expected data to be a string; qed"))) {
             Ok(val) => Uint8Array::from(val.as_slice()).into(),
             Err(err) => {
                 // we can check if we can return the data as is
@@ -355,9 +355,9 @@ pub fn process_multipart(options: JsValue) -> AssetsFunctionsWrapper {
                 }
 
                 console_error(&format!("error decoding and decompressing data: {err}"));
-                return JsValue::null();
+                JsValue::null()
             }
-        }     
+        }
     });
 
     let decompress_fn = decompress_fn.into_js_value();
