@@ -748,8 +748,9 @@ dependencies = [
 
 [[package]]
 name = "layer8-primitives"
-version = "0.1.0"
-source = "git+https://github.com/globe-and-citizen/layer8-primitives-rs.git?branch=osoro%2Ffeat%2Ffile-compression#1fdcd8e6c2692ec7d19803f747a1d34abdc60d11"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eacf017081071d93e190cab13121d5c637b3db1dd8ce1cbf1d250fa3579f3809"
 dependencies = [
  "aes-gcm",
  "base64 0.22.1",

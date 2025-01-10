@@ -10,7 +10,7 @@ use wasm_bindgen::prelude::*;
 use web_sys::{File, FormData};
 
 use layer8_primitives::{
-    compression::decode_b64_and_decompress_gzip,
+    compression::{compress_data_gzip, decode_b64_and_decompress_gzip},
     crypto::Jwk,
     types::{Response, ServeStatic},
 };
@@ -576,10 +576,21 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: String) {
         array_buffer.to_vec()
     };
 
-    let mime_type = data.sniff_mime_type().unwrap_or("application/octet-stream");
+    let mime_type = data.sniff_mime_type().unwrap_or("application/octet-stream").to_string();
+
+    // compress the file
+    let data = match compress_data_gzip(&data) {
+        Ok(val) => val,
+        Err(err) => {
+            console_error(&format!("error compressing file: {err}"));
+            response_set_status(res, 500);
+            response_set_status_text(res, "Internal Server Error");
+            return response_set_body_end(res, b"500 Internal Server Error");
+        }
+    };
 
     let js_res = Response {
-        body: data.clone(),
+        body: data,
         status: 200,
         status_text: "OK".to_string(),
         headers: Vec::from([("Content-Type".to_string(), mime_type.to_string())]),
