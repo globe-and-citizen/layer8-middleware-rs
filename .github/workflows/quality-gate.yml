@@ -49,7 +49,7 @@ jobs:
       - uses: Swatinem/rust-cache@v1
       - name: Test Format
         run: |
-          cargo fmt -p -- --check
+          cargo fmt --all --check       
 
   cargo-doc:
     runs-on: ubuntu-20.04
