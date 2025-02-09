@@ -1,0 +1,33 @@
+[package]
+name = "layer8-middleware-rs"
+# The versions have no bearing, only for the PoC before migrating to Org account
+version = "0.1.24"
+edition = "2021"
+authors = ["Osoro Bironga <fanosoro@gmail.com>"]
+repository = "github.com/muse254/layer8-middleware-rs"
+description = "This repository contains a Rust implementation of the Layer8 Middleware. Analogous to <https://github.com/globe-and-citizen/layer8-middleware>"
+license = "GNU GPLv2"
+readme = "README.md"
+categories = ["wasm"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+web-sys = { version = "0.3.70", features = ["File", "FormData"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0.128"
+base64 = { version = "0.22" }
+js-sys = "0.3"
+url = "2.5.2"
+rand = { version = "0.8", features = ["small_rng"] }
+form_urlencoded = "1.2.1"
+mime-sniffer = "0.1.2"
+layer8-primitives = { git = "https://github.com/globe-and-citizen/layer8-primitives-rs.git", branch = "main" } # TODO: update when released
+
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }
+uuid = "1.10.0"
+wasm-bindgen-test = "0.3"
+jsonwebtoken = "9"
