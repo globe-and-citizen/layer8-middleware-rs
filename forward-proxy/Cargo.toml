@@ -1,0 +1,21 @@
+[package]
+name = "forward-proxy"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "forward_proxy"
+path = "src/lib.rs"
+
+[dependencies]
+async-trait = "0.1"
+log = "0.4"
+pingora-core = "0.4"
+pingora-proxy = "0.4"
+tokio = { version = "1", features = ["full"] }
+env_logger = "0.11"
+dotenv = "0.15"
+
+[dev-dependencies]
+hyper = { version = "1", features = ["full"] }
+hyper-util = "0.1"
