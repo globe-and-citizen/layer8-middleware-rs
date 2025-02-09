@@ -17,7 +17,6 @@ async fn test_server(closing_signal: oneshot::Receiver<()>, port: &mut u16) {
             println!("Server accepted a connection");
             tokio::spawn(async move {
                 // lets echo whatever we receive
-                
             });
         },
         _ = closing_signal => {
