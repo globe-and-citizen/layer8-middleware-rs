@@ -94,4 +94,4 @@ jobs:
           fi
           cargo install wasm-pack
           which node
-          wasm-pack test --node --all-features
+          cd middleware-wasm && wasm-pack test --node --all-features
