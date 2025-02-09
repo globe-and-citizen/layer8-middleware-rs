@@ -1,28 +1,34 @@
-use pingora_core::{apps::ServerApp, server::{configuration::Opt, Server}};
-
-mod proxy;
-
-const LAYER8_PORT: &'static str = "LAYER8_PORT";
+use forward_proxy::run_proxy_server;
+use log::{error, warn};
 
 fn main() {
     dotenv::dotenv().ok();
-    let port = std::env::var(LAYER8_PORT).unwrap_or("80".to_string());
-    // .expect(
-    //     "LAYER8_PORT environment variable is required.
-    //     Example:
-    //     LAYER8_PORT=8080 ./binary", // we rather panic now for a missing env var
-    // );
 
-    // read command line arguments
-    let opt = Opt::parse_args();
-    let mut server = Server::new(Some(opt)).unwrap();
-    server.bootstrap();
+    let port = std::env::var("PORT")
+        .map(|v| match v.parse::<u16>() {
+            Ok(port) => port,
+            Err(_) => {
+                error!("Failed to parse PORT environment variable. Using default port 8080");
+                panic!("Failed to parse PORT environment variable");
+            }
+        })
+        .unwrap_or_else(|_| {
+            warn!("PORT environment variable is not set. Using default port 8080");
+            8080
+        });
 
-    ServerApp
+    let service_port = std::env::var("SERVICE_PORT")
+        .map(|v| match v.parse::<u16>() {
+            Ok(port) => port,
+            Err(_) => {
+                error!("Failed to parse SERVICE_PORT environment variable. Using default port 8080");
+                panic!("Failed to parse SERVICE_PORT environment variable");
+            }
+        })
+        .unwrap_or_else(|_| {
+            warn!("SERVICE_PORT environment variable is not set. Using default port 8080");
+            panic!("SERVICE_PORT environment variable is not set");
+        });
 
-    let mut middleware = pingora_proxy::http_proxy_service(&server.configuration, proxy::Layer8Proxy);
-
-    middleware.add_tcp(&format!("0.0.0.0:{}", port));
-    server.add_service(middleware);
-    server.run_forever()
+    run_proxy_server(port, service_port, false);
 }

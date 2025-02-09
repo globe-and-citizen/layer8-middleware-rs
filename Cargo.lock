@@ -433,6 +433,13 @@ name = "cli"
 version = "0.1.24"
 dependencies = [
  "clap 4.5.28",
+ "env_logger",
+ "forward-proxy",
+ "log",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
