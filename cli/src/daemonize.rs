@@ -88,7 +88,7 @@ fn create_file_if_not_exists() -> Result<PathBuf, String> {
         // `~/.config/MyApp` for unix systems
         format!("{}/.config/l8proxy", std::env::var("HOME").unwrap())
     } else if cfg!(windows) {
-        // `%USERPROFILE%\AppData\Local\MyApp\` for windows
+        // `%USERPROFILE%\AppData\Local\.l8proxy\` for windows
         format!("{}\\AppData\\Local\\l8proxy", std::env::var("USERPROFILE").unwrap())
     } else {
         panic!("Unsupported OS. Please open an issue on the repo to add support for this OS")

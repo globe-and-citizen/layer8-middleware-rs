@@ -217,7 +217,7 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
         }
     };
 
-    match process_data(&body, &symmetric_key) {
+    match process_data(body.as_bytes(), &symmetric_key) {
         Ok(processed_req) => {
             log("Successfully processed data!");
 
@@ -702,7 +702,7 @@ fn convert_body_to_form_data(req_body: &serde_json::Map<String, serde_json::Valu
     Ok(JsValue::from(form_data))
 }
 
-fn get_arbitrary_boundary() -> String {
+pub fn get_arbitrary_boundary() -> String {
     let mut small_rng = SmallRng::from_entropy();
     let random_bytes: [u8; 16] = small_rng.gen();
     format!("----Layer8FormBoundary{}", base64_enc_dec.encode(random_bytes))
