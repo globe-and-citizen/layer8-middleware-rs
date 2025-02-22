@@ -82,6 +82,7 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
     };
 
     if !headers_map.contains_key("x-tunnel")
+        || headers_map.get("x-client-uuid").is_none()
         || headers_map.get("x-tunnel") == Some(&JsWrapper::String("".to_string()))
         || headers_map.get("x-tunnel") == Some(&JsWrapper::Undefined)
         || headers_map.get("x-tunnel") == Some(&JsWrapper::Null)
@@ -126,12 +127,8 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
         }
     };
 
-    let is_ecdh_init = headers_map.get("x-ecdh-init");
-    let client_uuid = headers_map.get("x-client-uuid");
-    if client_uuid.is_none()
-        || (is_ecdh_init.is_some() && *is_ecdh_init.expect_throw("infalliable") != JsWrapper::Null)
-        || (is_ecdh_init.is_some() && *is_ecdh_init.expect_throw("infalliable") != JsWrapper::Undefined)
-    {
+    // This is the first request in the ECDH key exchange
+    if headers_map.get("x-ecdh-init").is_some() {
         init_ecdh(&res);
 
         // invoking next middleware
@@ -141,7 +138,8 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
         return;
     }
 
-    let client_uuid = client_uuid
+    let client_uuid = headers_map
+        .get("x-client-uuid")
         .expect_throw("infalliable")
         .to_string()
         .expect_throw("expected client_uuid to be a string; qed");

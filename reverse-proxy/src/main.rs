@@ -1,12 +1,44 @@
+use env_logger::{Env, Target};
 use forward_proxy::run_proxy_server;
-use log::{error, warn};
+use log::{error, info, warn, LevelFilter};
+use std::io::Write;
 
 fn main() {
     dotenv::dotenv().ok();
 
+    // we expect this handled from the downstream cli application on production builds
+    // #[cfg(debug_assertions)]
+    // {
+    env_logger::Builder::from_env(Env::default())
+        .format(|buf, record| {
+            writeln!(
+                buf,
+                "{}:{} {} [{}] - {}",
+                record.file().unwrap_or("unknown"),
+                record.line().unwrap_or(0),
+                chrono::Local::now().format("%Y-%m-%dT%H:%M:%S"),
+                record.level(),
+                record.args()
+            )
+        })
+        .target(Target::Stdout)
+        .filter(Some("logger_example"), LevelFilter::Debug)
+        .init();
+
+    // let mut builder = Builder::from_env(env);
+    // String::from_utf8_lossy(vec![0x48, 0x65, 0x6c, 0x6c, 0x6f]);
+
+    // builder.try_init()
+
+    // env_logger::init();
+    //  }//
+
     let port = std::env::var("PORT")
         .map(|v| match v.parse::<u16>() {
-            Ok(port) => port,
+            Ok(port) => {
+                info!("Using port: {}", port);
+                port
+            }
             Err(_) => {
                 error!("Failed to parse PORT environment variable. Using default port 8080");
                 panic!("Failed to parse PORT environment variable");
