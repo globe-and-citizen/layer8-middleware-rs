@@ -1,6 +1,5 @@
 //! This is the API interface for the layer8 forward proxy.
 
-use std::io::{Cursor, Read};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -13,10 +12,11 @@ use pingora_core::{prelude::HttpPeer, Result};
 use pingora_proxy::{ProxyHttp, Session};
 use serde_json::json;
 
+mod websocket_ext;
 use layer8_middleware_rs::{Ecdh, InMemStorage};
 use layer8_primitives::crypto::{base64_to_jwk, generate_key_pair, KeyUse};
 use layer8_primitives::types::{Layer8Envelope, WebSocketPayload};
-use layer8_tungstenite::protocol::frame::{coding::Data, Frame, FrameHeader};
+use websocket_ext::{construct_raw_websocket_frame, parse_payload_from_raw_frame_bytes};
 
 struct Layer8Proxy {
     service_port: u16,
@@ -72,45 +72,22 @@ impl ProxyHttp for Layer8Proxy {
             }
         };
 
-        let data_placeholder = {
-            let mut raw = Cursor::new(data);
-            let (header, _) = FrameHeader::parse(&mut raw).unwrap().unwrap();
-            let mut payload = Vec::new();
-            raw.read_to_end(&mut payload).unwrap();
-            let frame = Frame::from_payload(header, payload.into());
-            frame.into_payload()
-        };
-
+        let data_placeholder = parse_payload_from_raw_frame_bytes(data).map_err(|e| to_pingora_err(&e))?;
         match ecdh_exchange(ctx, &data_placeholder, None).await? {
             // tunnel is being set up, clear the body
             (Some(val), None) => {
-                let output = {
-                    let frame = Frame::message(
-                        b"init_tunnel".to_vec(),
-                        layer8_tungstenite::protocol::frame::coding::OpCode::Data(Data::Text),
-                        false,
-                    );
-
-                    let mut output = Vec::with_capacity(frame.len());
-                    frame
-                        .format(&mut output)
-                        .map_err(|e| to_pingora_err(&format!("error constructing frame data: {e}")))?;
-
-                    output
-                };
-
                 ctx.init_ecdh_payload = Some(Bytes::from(val));
-                *body = Some(Bytes::from(output));
+
+                // this part is a hack but necessary to ensure the handshake is completed
+                *body = Some(Bytes::from(
+                    construct_raw_websocket_frame(b"init_tunnel", true).map_err(|e| to_pingora_err(&e))?,
+                ));
                 debug!("Finished handshake with middleware, waiting for return trip");
             }
 
             // tunnel already setup; we only need to rewrite the response body
             (None, Some(val)) => {
-                let frame = Frame::message(val, layer8_tungstenite::protocol::frame::coding::OpCode::Data(Data::Text), false);
-                let mut output = Vec::with_capacity(frame.len());
-                frame
-                    .format(&mut output)
-                    .map_err(|e| to_pingora_err(&format!("error constructing frame data: {e}")))?;
+                let output = construct_raw_websocket_frame(&val, true).map_err(|e| to_pingora_err(&e))?;
                 *body = Some(Bytes::from(output));
             }
 
@@ -132,61 +109,43 @@ impl ProxyHttp for Layer8Proxy {
             return Ok(None);
         }
 
-        if let Some(init_ecdh_return) = ctx.init_ecdh_payload.clone() {
-            let output = {
-                let frame = Frame::message(
-                    init_ecdh_return,
-                    layer8_tungstenite::protocol::frame::coding::OpCode::Data(Data::Text),
-                    false,
-                );
-                let mut output = Vec::with_capacity(frame.len());
-                frame
-                    .format(&mut output)
-                    .map_err(|e| to_pingora_err(&format!("error constructing frame data: {e}")))?;
+        if let Some(init_ecdh_return) = ctx.init_ecdh_payload.as_ref() {
+            debug!("---------------------------------------------------------------");
+            debug!("Sending ECDH Init Payload: {:?}", String::from_utf8_lossy(init_ecdh_return));
+            debug!("---------------------------------------------------------------");
 
-                output
-            };
-
+            let output = construct_raw_websocket_frame(init_ecdh_return, false).map_err(|e| to_pingora_err(&e))?;
             *body = Some(Bytes::from(output));
             ctx.init_ecdh_payload = None;
             return Ok(None);
         }
 
         if let Some(raw) = body {
-            let data = {
-                let mut raw = Cursor::new(raw);
-                let (header, _) = FrameHeader::parse(&mut raw).unwrap().unwrap();
-                let mut payload = Vec::new();
-                raw.read_to_end(&mut payload).unwrap();
-                let frame = Frame::from_payload(header, payload.into());
-                frame.into_payload()
-            };
+            let data = parse_payload_from_raw_frame_bytes(raw).map_err(|e| to_pingora_err(&e))?;
 
-            let shared_secret = ctx.persistent_data.keys.0.iter().map(|(_, v)| v).collect::<Vec<_>>()[0]; // this is a hack revisit
+            debug!("---------------------------------------------------------------");
+            debug!("Parsed Outgoing Data: {:?}", String::from_utf8_lossy(&data));
+            debug!("---------------------------------------------------------------");
+
+            let shared_secret = ctx.persistent_data.keys.0.values().collect::<Vec<_>>()[0]; // FIXME: this is a hack revisit
             let request_data = {
-                let encrypt_data = shared_secret
+                let encrypted_data = shared_secret
                     .symmetric_encrypt(&data)
                     .map_err(|e| to_pingora_err(&format!("Failed to encrypt request: {e}")))?;
-
                 let mut val = String::new();
-                base64_enc_dec.encode_string(encrypt_data, &mut val);
+                base64_enc_dec.encode_string(encrypted_data, &mut val);
 
-                let roundtrip = WebSocketPayload {
+                let roundtrip: WebSocketPayload = WebSocketPayload {
                     payload: Some(val),
                     metadata: json!({}),
                 };
 
-                let frame = Frame::message(
-                    serde_json::to_vec(&roundtrip).expect("expected the roundtrip to be serializable to a valid json object; qed"),
-                    layer8_tungstenite::protocol::frame::coding::OpCode::Data(Data::Text),
+                construct_raw_websocket_frame(
+                    &serde_json::to_vec(&Layer8Envelope::WebSocket(roundtrip))
+                        .expect("expected the envelope to be serializable to a valid json object; qed"),
                     false,
-                );
-                let mut output = Vec::with_capacity(frame.len());
-                frame
-                    .format(&mut output)
-                    .map_err(|e| to_pingora_err(&format!("error constructing frame data: {e}")))?;
-
-                output
+                )
+                .map_err(|e| to_pingora_err(&e))?
             };
 
             *body = Some(Bytes::from(request_data));
@@ -227,10 +186,9 @@ async fn ecdh_exchange(ctx: &mut Context, data: &[u8], _session: Option<&mut Ses
         to_pingora_err(&e.to_string())
     })?;
 
-    let metadata = match envelope {
-        Layer8Envelope::WebSocket(payload) => {
-            serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(payload.metadata).expect("we expect a json object as the metadata")
-        }
+    let metadata = match &envelope {
+        Layer8Envelope::WebSocket(payload) => serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(payload.metadata.clone())
+            .expect("we expect a json object as the metadata"),
         _ => {
             return Err(to_pingora_err("expected a websocket envelope"));
         }
@@ -247,12 +205,33 @@ async fn ecdh_exchange(ctx: &mut Context, data: &[u8], _session: Option<&mut Ses
             }
         };
 
-        return init_ecdh_tunnel(ctx, None, &x_ecdh_init, &x_client_uuid, &mp_jwt)
+        return init_ecdh_tunnel(ctx, None, x_ecdh_init, x_client_uuid, mp_jwt)
             .await
             .map(|val| (Some(val), None));
     }
 
-    todo!()
+    // at this point we retrieve our keys and decrypt the data in the payload section
+    let payload = match envelope {
+        Layer8Envelope::WebSocket(ws_data) => {
+            if ws_data.payload.is_none() {
+                return Err(to_pingora_err("expected a payload in the websocket envelope"));
+            }
+
+            let shared_secret = ctx.persistent_data.keys.0.values().collect::<Vec<_>>()[0]; // FIXME: this is a hack revisit
+            shared_secret
+                .symmetric_decrypt(
+                    &base64_enc_dec
+                        .decode(ws_data.payload.expect("expected the payload to be present"))
+                        .map_err(|e| to_pingora_err(&e.to_string()))?,
+                )
+                .map_err(|e| to_pingora_err(&e))?
+        }
+        _ => {
+            return Err(to_pingora_err("expected a websocket envelope"));
+        }
+    };
+
+    Ok((None, Some(payload)))
 }
 
 async fn init_ecdh_tunnel(

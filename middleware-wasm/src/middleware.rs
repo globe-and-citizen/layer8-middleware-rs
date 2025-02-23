@@ -82,7 +82,7 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
     };
 
     if !headers_map.contains_key("x-tunnel")
-        || headers_map.get("x-client-uuid").is_none()
+        || headers_map.contains_key("x-client-uuid")
         || headers_map.get("x-tunnel") == Some(&JsWrapper::String("".to_string()))
         || headers_map.get("x-tunnel") == Some(&JsWrapper::Undefined)
         || headers_map.get("x-tunnel") == Some(&JsWrapper::Null)
@@ -128,7 +128,7 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
     };
 
     // This is the first request in the ECDH key exchange
-    if headers_map.get("x-ecdh-init").is_some() {
+    if headers_map.contains_key("x-ecdh-init") {
         init_ecdh(&res);
 
         // invoking next middleware
