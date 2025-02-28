@@ -6,9 +6,6 @@ use std::io::Write;
 fn main() {
     dotenv::dotenv().ok();
 
-    // we expect this handled from the downstream cli application on production builds
-    // #[cfg(debug_assertions)]
-    // {
     env_logger::Builder::from_env(Env::default())
         .format(|buf, record| {
             writeln!(
@@ -24,14 +21,6 @@ fn main() {
         .target(Target::Stdout)
         .filter(Some("logger_example"), LevelFilter::Debug)
         .init();
-
-    // let mut builder = Builder::from_env(env);
-    // String::from_utf8_lossy(vec![0x48, 0x65, 0x6c, 0x6c, 0x6f]);
-
-    // builder.try_init()
-
-    // env_logger::init();
-    //  }//
 
     let port = std::env::var("PORT")
         .map(|v| match v.parse::<u16>() {
