@@ -23,7 +23,7 @@ url = "2.5.2"
 rand = { version = "0.8", features = ["small_rng"] }
 form_urlencoded = "1.2.1"
 mime-sniffer = "0.1.2"
-layer8-primitives = { git = "https://github.com/globe-and-citizen/layer8-primitives-rs.git", branch = "patch/websocket-impl-changes" } # TODO: update when released
+layer8-primitives = { git = "https://github.com/globe-and-citizen/layer8-primitives-rs.git", branch = "main" } # TODO: update when released
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }
