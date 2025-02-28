@@ -33,7 +33,7 @@ impl Ecdh {
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct Keys(pub HashMap<String, Jwk>);
+pub struct Keys(pub HashMap<String, Jwk>);
 
 impl Keys {
     pub fn add(&mut self, key: &str, value: Jwk) {
@@ -67,7 +67,7 @@ impl Jwts {
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct InMemStorage {
+pub struct InMemStorage {
     pub ecdh: Ecdh,
     pub keys: Keys,
     pub jwts: Jwts,

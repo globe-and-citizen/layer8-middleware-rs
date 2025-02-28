@@ -82,6 +82,7 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
     };
 
     if !headers_map.contains_key("x-tunnel")
+        || headers_map.contains_key("x-client-uuid")
         || headers_map.get("x-tunnel") == Some(&JsWrapper::String("".to_string()))
         || headers_map.get("x-tunnel") == Some(&JsWrapper::Undefined)
         || headers_map.get("x-tunnel") == Some(&JsWrapper::Null)
@@ -126,12 +127,8 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
         }
     };
 
-    let is_ecdh_init = headers_map.get("x-ecdh-init");
-    let client_uuid = headers_map.get("x-client-uuid");
-    if client_uuid.is_none()
-        || (is_ecdh_init.is_some() && *is_ecdh_init.expect_throw("infalliable") != JsWrapper::Null)
-        || (is_ecdh_init.is_some() && *is_ecdh_init.expect_throw("infalliable") != JsWrapper::Undefined)
-    {
+    // This is the first request in the ECDH key exchange
+    if headers_map.contains_key("x-ecdh-init") {
         init_ecdh(&res);
 
         // invoking next middleware
@@ -141,7 +138,8 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
         return;
     }
 
-    let client_uuid = client_uuid
+    let client_uuid = headers_map
+        .get("x-client-uuid")
         .expect_throw("infalliable")
         .to_string()
         .expect_throw("expected client_uuid to be a string; qed");
@@ -217,7 +215,7 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
         }
     };
 
-    match process_data(&body, &symmetric_key) {
+    match process_data(body.as_bytes(), &symmetric_key) {
         Ok(processed_req) => {
             log("Successfully processed data!");
 
@@ -702,7 +700,7 @@ fn convert_body_to_form_data(req_body: &serde_json::Map<String, serde_json::Valu
     Ok(JsValue::from(form_data))
 }
 
-fn get_arbitrary_boundary() -> String {
+pub fn get_arbitrary_boundary() -> String {
     let mut small_rng = SmallRng::from_entropy();
     let random_bytes: [u8; 16] = small_rng.gen();
     format!("----Layer8FormBoundary{}", base64_enc_dec.encode(random_bytes))

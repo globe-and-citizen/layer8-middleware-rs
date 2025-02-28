@@ -1,0 +1,33 @@
+[package]
+name = "reverse-proxy"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "forward_proxy"
+path = "src/lib.rs"
+
+[dependencies]
+async-trait = "0.1"
+log = "0.4"
+pingora-core = "0.4"
+pingora-proxy = "0.4"
+tokio = { version = "1", features = ["full"] }
+env_logger = "0.11"
+dotenv = "0.15"
+layer8-primitives = { git = "https://github.com/globe-and-citizen/layer8-primitives-rs.git", branch = "patch/websocket-impl-changes" } # TODO: update when released
+layer8-middleware-rs = { path = "../middleware-wasm" }
+layer8-tungstenite = { git = "https://github.com/globe-and-citizen/layer8-tungstenite.git", branch = "master" }
+serde_json = "1.0.138"
+pingora = "0.4.0"
+bytes = "1.10.0"
+http = "1.2.0"
+chrono = "0.4.39"
+rand = "0.9.0"
+base64 = "0.22.1"
+
+[dev-dependencies]
+env_logger = "0.11"
+hyper = { version = "1", features = ["full"] }
+hyper-util = "0.1"
+tokio = { version = "1", features = ["rt", "macros"] }
