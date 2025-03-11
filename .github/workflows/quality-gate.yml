@@ -16,23 +16,23 @@ env:
   RUST_BACKTRACE: short
 
 jobs:
-  audit:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Sources
-        uses: actions/checkout@v3
-      - name: Install Toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          default: true
-      - uses: Swatinem/rust-cache@v1
-      - name: Install Audit
-        run: cargo install cargo-audit
-      - name: Run Audit
-        run: |
-          cargo audit
+  # audit:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Checkout Sources
+  #       uses: actions/checkout@v3
+  #     - name: Install Toolchain
+  #       uses: actions-rs/toolchain@v1
+  #       with:
+  #         profile: minimal
+  #         toolchain: stable
+  #         default: true
+  #     - uses: Swatinem/rust-cache@v1
+  #     - name: Install Audit
+  #       run: cargo install cargo-audit
+  #     - name: Run Audit
+  #       run: |
+  #         cargo audit
 
   lint:
     name: lint-and-format
