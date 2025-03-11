@@ -21,6 +21,7 @@ jobs:
           target: wasm32-unknown-unknown
 
       - name: Build
+        working-directory: ./middleware-wasm
         run: |
           cargo install wasm-pack
           wasm-pack build --target nodejs --release
@@ -32,10 +33,10 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Publish to NPM 
+      - name: Publish to NPM
         uses: JS-DevTools/npm-publish@v3
         with:
           token: ${{ secrets.NPM_ACCESS_TOKEN }}
           registry: https://registry.npmjs.org
           access: public
-          package: ./pkg
+          package: ./middleware-wasm/pkg

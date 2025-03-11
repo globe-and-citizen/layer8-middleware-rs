@@ -1,0 +1,19 @@
+[package]
+name = "cli"
+version = "0.1.24"
+edition = "2021"
+authors = ["Osoro Bironga <fanosoro@gmail.com>"]
+repository = "github.com/muse254/layer8-middleware-rs"
+license = "GNU GPLv2"
+readme = "README.md"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+log = "0.4"
+reqwest = "0.12"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+reverse-proxy = { path = "../reverse-proxy" }
+env_logger = "0.11"
+fs2 = "0.4.3"

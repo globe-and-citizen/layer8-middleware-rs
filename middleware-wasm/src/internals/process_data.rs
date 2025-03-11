@@ -14,9 +14,9 @@ pub struct ProcessedData {
     pub response: Option<Response>,
 }
 
-pub(crate) fn process_data(raw_data: &str, key: &Jwk) -> Result<Request, Response> {
+pub fn process_data(raw_data: &[u8], key: &Jwk) -> Result<Request, Response> {
     let enc =
-        serde_json::from_str::<HashMap<String, serde_json::Value>>(raw_data).expect("a valid json object should be deserializable to the hashmap");
+        serde_json::from_slice::<HashMap<String, serde_json::Value>>(raw_data).expect("a valid json object should be deserializable to the hashmap");
 
     let val = match enc.get("data") {
         Some(val) => val,
@@ -89,7 +89,7 @@ mod tests {
                 shared_secret.clone(),
             );
 
-            let val = match process_data(&raw_data, &shared_secret) {
+            let val = match process_data(raw_data.as_bytes(), &shared_secret) {
                 Ok(val) => val,
                 Err(err) => panic!("expected the process_data to return a valid request: {}", err.status_text),
             };
@@ -116,7 +116,7 @@ mod tests {
                 shared_secret2.clone(),
             );
 
-            let val = match process_data(&raw_data, &shared_secret2) {
+            let val = match process_data(raw_data.as_bytes(), &shared_secret2) {
                 Ok(val) => val,
                 Err(err) => panic!("expected the process_data to return a valid request: {}", err.status_text),
             };
