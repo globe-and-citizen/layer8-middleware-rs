@@ -22,10 +22,11 @@ jobs:
     steps:
       - uses: actions/checkout@master
       - name: Compile and release
-        uses: rust-build/rust-build.action@v1.4.0
+        uses: rust-build/rust-build.action@v1.4.5
         env:
           GITHUB_TOKEN: ${{ secrets.THE_GITHUB_TOKEN }}
           SRC_DIR: ./reverse-proxy
         with:
+          TOOLCHAIN_VERSION: 1.83.0
           RUSTTARGET: ${{ matrix.target }}
           ARCHIVE_TYPES: ${{ matrix.archive }}
