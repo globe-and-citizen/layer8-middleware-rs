@@ -13,7 +13,7 @@ log = "0.4"
 pingora-core = "0.4"
 pingora-proxy = "0.4"
 tokio = { version = "1", features = ["full"] }
-env_logger = "0.11"
+env_logger = "0.11.7"
 dotenv = "0.15"
 layer8-primitives = { git = "https://github.com/globe-and-citizen/layer8-primitives-rs.git", branch = "main" } # TODO: update when released
 layer8-middleware-rs = { path = "../middleware-wasm" }
@@ -27,7 +27,7 @@ base64 = "0.22.1"
 
 [dev-dependencies]
 layer8-tungstenite = { git = "https://github.com/globe-and-citizen/layer8-tungstenite.git", branch = "master" }
-env_logger = "0.11"
+env_logger = "0.11.7"
 hyper = { version = "1", features = ["full"] }
 hyper-util = "0.1"
 tokio = { version = "1", features = ["rt", "macros"] }
