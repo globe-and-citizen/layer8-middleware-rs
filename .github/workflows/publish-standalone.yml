@@ -20,12 +20,19 @@ jobs:
           - target: x86_64-apple-darwin
             archive: zip
     steps:
+      - name: Setting up the environment
+        run: |
+          sudo apt update
+          sudo apt upgrade
+          sudo apt install build-essential gcc make zlib1g-dev
+
       - uses: actions/checkout@master
       - name: Compile and release
-        uses: rust-build/rust-build.action@v1.4.0
+        uses: rust-build/rust-build.action@v1.4.5
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.THE_GITHUB_TOKEN }}
           SRC_DIR: ./reverse-proxy
         with:
+          TOOLCHAIN_VERSION: stable
           RUSTTARGET: ${{ matrix.target }}
           ARCHIVE_TYPES: ${{ matrix.archive }}
