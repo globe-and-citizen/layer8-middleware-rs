@@ -300,7 +300,7 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
 }
 
 fn respond_callback(res: &JsValue, data: &JsValue, sym_key: String, jwt: String) {
-    let sym_key = serde_json::from_str::<Jwk>(&sym_key).expect_throw("expected sym_key to be a valid json object; qed"); // infalliable, we know the data is a valid json object
+    let sym_key = serde_json::from_str::<Jwk>(&sym_key).expect_throw("expected sym_key to be a valid json object; qed");
 
     let mut data_ = Vec::new();
     if data.is_string() {
