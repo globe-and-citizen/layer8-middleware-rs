@@ -2179,6 +2179,7 @@ dependencies = [
  "layer8-middleware-rs",
  "layer8-primitives",
  "layer8-tungstenite",
+ "libc",
  "log",
  "pingora",
  "pingora-core",

@@ -38,7 +38,6 @@ enum Cli {
         #[arg(long)]
         log_file: Option<String>,
     },
-
     /// Stops the reverse-proxy server if it is running in the background
     Stop {
         /// Proxy port to stop; if not provided, all running proxies are stopped.
@@ -52,11 +51,11 @@ enum Cli {
 
 #[tokio::main]
 async fn main() {
-    if cfg!(debug_assertions) {
-        std::env::set_var("RUST_LOG", "DEBUG");
-    } else {
-        std::env::set_var("RUST_LOG", "INFO");
-    }
+    // if cfg!(debug_assertions) {
+    std::env::set_var("RUST_LOG", "DEBUG");
+    // } else {
+    // std::env::set_var("RUST_LOG", "INFO");
+    // }
 
     env_logger::init();
 
@@ -156,19 +155,28 @@ async fn main() {
                     info!("Port: {}", proxy.port);
                     info!("Service port: {}", proxy.service_port);
 
-                    let resp = reqwest::Client::new()
+                    let result_ = reqwest::Client::new()
                         .get(format!("http://localhost:{}/", proxy.port))
                         .header("l8-stop-signal", 1)
                         .send()
-                        .await
-                        .unwrap();
+                        .await;
 
-                    // lets log the response code
-                    info!("\nStop HTTP code: {}", resp.status());
+                    match result_ {
+                        Ok(resp) => {
+                            // lets log the response code
+                            info!("\nStop HTTP code: {}", resp.status());
 
-                    // ensure the response is Accepted
-                    if resp.status() != reqwest::StatusCode::ACCEPTED {
-                        error!("Failed to stop reverse-proxy server with process id: {}", proxy.port);
+                            // ensure the response is Accepted
+                            if resp.status() != reqwest::StatusCode::ACCEPTED {
+                                error!("Failed to stop reverse-proxy server with process id: {}", proxy.port);
+                            }
+                        }
+
+                        Err(err) => {
+                            if !reqwest::Error::is_request(&err) {
+                                error!("Failed to stop reverse-proxy server with process id: {}. Error: {}", proxy.port, err);
+                            }
+                        }
                     }
                 }
             }
