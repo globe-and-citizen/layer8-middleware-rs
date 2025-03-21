@@ -4,7 +4,6 @@ use base64::{self, engine::general_purpose::URL_SAFE as base64_enc_dec, Engine a
 use js_sys::{Array, Function, Object, Uint8Array};
 use mime_sniffer::MimeTypeSniffer;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
-use serde_json::json;
 use url::Url;
 use wasm_bindgen::prelude::*;
 use web_sys::{File, FormData};
@@ -12,7 +11,7 @@ use web_sys::{File, FormData};
 use layer8_primitives::{
     compression::{compress_data_gzip, decode_b64_and_decompress_gzip},
     crypto::Jwk,
-    types::{Response, ServeStatic},
+    types::{Layer8Envelope, Response, RoundtripEnvelope, ServeStatic},
 };
 
 use crate::{
@@ -81,12 +80,7 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
         map
     };
 
-    if !headers_map.contains_key("x-tunnel")
-        || headers_map.contains_key("x-client-uuid")
-        || headers_map.get("x-tunnel") == Some(&JsWrapper::String("".to_string()))
-        || headers_map.get("x-tunnel") == Some(&JsWrapper::Undefined)
-        || headers_map.get("x-tunnel") == Some(&JsWrapper::Null)
-    {
+    if !headers_map.contains_key("x-tunnel") || !headers_map.contains_key("x-client-uuid") {
         // invoking next middleware
         if let Err(e) = js_sys::Function::from(next).call0(&JsValue::NULL) {
             console_error(&format!("Error invoking next middleware: {e:?}"));
@@ -197,7 +191,17 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
     let body = match request_get_body(&req) {
         Ok(val) => {
             // we expect the body to be an Object
-            as_json_string(&val)
+            let val = Layer8Envelope::from_json_bytes(as_json_string(&val).as_bytes())
+                .expect_throw("all types through the network are expected as Layer8Envelope. This is a bug, please report it to the maintainers");
+
+            match val {
+                Layer8Envelope::Http(val) => val.data,
+                _ => {
+                    console_error("expected the body to be a Layer8Envelope::Http variant");
+                    JsValue::null();
+                    return;
+                }
+            }
         }
         Err(err) => {
             // this is not supposed to happen; signal that the data aggregation for the body is supposed to be
@@ -215,7 +219,7 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
         }
     };
 
-    match process_data(body.as_bytes(), &symmetric_key) {
+    match process_data(&body, &symmetric_key) {
         Ok(processed_req) => {
             log("Successfully processed data!");
 
@@ -287,7 +291,6 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
             }
         }
         Err(processed_resp) => {
-            log("Issue processing data!");
             response_set_status(&res, processed_resp.status);
             response_set_status_text(&res, &processed_resp.status_text);
         }
@@ -318,10 +321,8 @@ fn respond_callback(res: &JsValue, data: &JsValue, sym_key: String, jwt: String)
         response_add_header(res, &key, &val);
     }
 
-    let data = json!({
-        "data": base64_enc_dec.encode(&resp.body).to_string(),
-    })
-    .to_string();
+    let data = serde_json::to_string(&Layer8Envelope::Http(RoundtripEnvelope::encode(&resp.body)))
+        .expect_throw("expected the response to be serializable to a valid json object; qed");
 
     response_set_body_end(res, data.as_bytes());
 }
@@ -614,10 +615,8 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: String) {
     response_add_header(res, "Content-Type", "application/json");
     response_add_header(res, "mp-JWT", &mp_jwt);
 
-    let data = serde_json::to_string(&layer8_primitives::types::RoundtripEnvelope {
-        data: base64_enc_dec.encode(&encrypted),
-    })
-    .expect("RoundtripEnvelope serializes to json");
+    let data = serde_json::to_string(&Layer8Envelope::Http(RoundtripEnvelope::encode(&encrypted)))
+        .expect_throw("expected the response to be serializable to a valid json object; qed");
 
     response_set_body_end(res, data.as_bytes());
 }

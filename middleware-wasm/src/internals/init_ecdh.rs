@@ -225,5 +225,3 @@ mod tests {
         }
     }
 }
-
-// CLIENT --> INTERCEPTOR --> PROXY --> SERVER(MIDDLEWARE --> HANDLER) then back to CLIENT using the reverse path
