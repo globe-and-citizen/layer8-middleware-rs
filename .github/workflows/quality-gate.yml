@@ -93,5 +93,6 @@ jobs:
             export AR=/opt/homebrew/opt/llvm/bin/llvm-ar
           fi
           cargo install wasm-pack
-          which node
+          # Side effect to fail if node is not installed
+          which node 
           cd middleware-wasm && wasm-pack test --node --all-features
