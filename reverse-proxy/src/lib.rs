@@ -13,6 +13,7 @@ use pingora_proxy::{ProxyHttp, Session};
 use serde_json::json;
 
 mod websocket_ext;
+mod middleware;
 use layer8_middleware_rs::{Ecdh, InMemStorage};
 use layer8_primitives::crypto::{base64_to_jwk, generate_key_pair, KeyUse};
 use layer8_primitives::types::{Layer8Envelope, WebSocketPayload};

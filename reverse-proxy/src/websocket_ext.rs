@@ -107,7 +107,7 @@ pub fn construct_raw_websocket_frame(payload: &[u8], mask: bool) -> Result<Vec<u
 
 #[cfg(test)]
 mod tests {
-    use layer8_tungstenite::protocol::frame::{coding::OpCode, Frame};
+    use tungstenite::protocol::frame::{coding::OpCode, Frame};
 
     use super::*;
 
@@ -181,7 +181,7 @@ mod tests {
     #[test]
     fn test_consistency_with_tungstenite() {
         for i in [b"Hello, World!", vec![0; 70000].as_slice()] {
-            let frame = Frame::message(i.to_vec(), OpCode::Data(layer8_tungstenite::protocol::frame::coding::Data::Text), false);
+            let frame = Frame::message(i.to_vec(), OpCode::Data(tungstenite::protocol::frame::coding::Data::Text), false);
 
             let mut output = Vec::new();
             if let Err(err) = frame.format(&mut output) {
