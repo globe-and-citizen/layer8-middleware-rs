@@ -36,8 +36,6 @@ pub fn process_data(data: &str, key: &Jwk) -> Result<Request, Response> {
 mod tests {
     use std::collections::HashMap;
 
-    use wasm_bindgen_test::*;
-
     use layer8_primitives::{
         crypto::{generate_key_pair, Jwk, KeyUse},
         types::{Request, RoundtripEnvelope},
@@ -45,8 +43,7 @@ mod tests {
 
     use super::process_data;
 
-    #[allow(dead_code)]
-    #[wasm_bindgen_test]
+    #[test]
     fn test_process_data() {
         let (priv_key, pub_key) = generate_key_pair(KeyUse::Ecdh).unwrap();
         let shared_secret = priv_key.get_ecdh_shared_secret(&pub_key).unwrap();

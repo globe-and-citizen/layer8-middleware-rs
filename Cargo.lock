@@ -1350,8 +1350,9 @@ dependencies = [
 
 [[package]]
 name = "layer8-primitives"
-version = "0.1.1"
-source = "git+https://github.com/globe-and-citizen/layer8-primitives-rs.git?branch=main#4954779d8b58b3fb0dc10a795af9dc3671323848"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "adc34c473ea5e751ad9c227ea029e7ff821e255fa8381b3024f629bbfd3f50af"
 dependencies = [
  "aes-gcm",
  "base64",
@@ -1364,24 +1365,6 @@ dependencies = [
  "serde_json",
  "url",
  "uuid",
-]
-
-[[package]]
-name = "layer8-tungstenite"
-version = "0.26.1"
-source = "git+https://github.com/globe-and-citizen/layer8-tungstenite.git?branch=master#240fee737a6290ec96a81efc40c9439ac963943d"
-dependencies = [
- "bytes",
- "data-encoding",
- "getrandom 0.2.15",
- "http",
- "httparse",
- "layer8-primitives",
- "log",
- "rand 0.8.5",
- "sha1",
- "thiserror 2.0.12",
- "utf-8",
 ]
 
 [[package]]
@@ -2184,7 +2167,6 @@ dependencies = [
  "hyper-util",
  "layer8-middleware-rs",
  "layer8-primitives",
- "layer8-tungstenite",
  "libc",
  "log",
  "pingora",
@@ -2193,6 +2175,7 @@ dependencies = [
  "rand 0.9.0",
  "serde_json",
  "tokio",
+ "tungstenite",
 ]
 
 [[package]]
@@ -2939,6 +2922,23 @@ name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
+
+[[package]]
+name = "tungstenite"
+version = "0.26.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4793cb5e56680ecbb1d843515b23b6de9a75eb04b66643e256a396d43be33c13"
+dependencies = [
+ "bytes",
+ "data-encoding",
+ "http",
+ "httparse",
+ "log",
+ "rand 0.9.0",
+ "sha1",
+ "thiserror 2.0.12",
+ "utf-8",
+]
 
 [[package]]
 name = "typenum"
