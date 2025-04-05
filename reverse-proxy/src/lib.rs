@@ -1,5 +1,4 @@
 //! This is the API interface for the layer8 forward proxy.
-
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -63,9 +62,6 @@ impl ProxyHttp for Layer8Proxy {
     {
         // we only need to process the body if it is an upgrade request, else this can be done in the request_filter
         debug!("---------------- CallStack: request_body_filter ----------------");
-        if !session.is_upgrade_req() {
-            return Ok(());
-        };
 
         let data = match body {
             Some(val) => val,
@@ -75,23 +71,48 @@ impl ProxyHttp for Layer8Proxy {
             }
         };
 
-        let data_placeholder = parse_payload_from_raw_frame_bytes(data).map_err(|e| to_pingora_err(&e))?;
-        match ecdh_exchange(ctx, &data_placeholder, None).await? {
+        if session.is_upgrade_req() {
+            let encoded_data = parse_payload_from_raw_frame_bytes(data).map_err(|e| to_pingora_err(&e))?;
+            match ecdh_exchange(ctx, &encoded_data, None).await? {
+                // tunnel is being set up, clear the body
+                (Some(val), None) => {
+                    ctx.init_ecdh_payload = Some(Bytes::from(val));
+
+                    // this part is a hack but necessary to ensure the handshake is completed
+                    *body = Some(Bytes::from(
+                        construct_raw_websocket_frame(b"init_tunnel", true).map_err(|e| to_pingora_err(&e))?,
+                    ));
+                    debug!("Finished handshake with middleware, waiting for return trip");
+                }
+
+                // tunnel already setup; we only need to rewrite the response body
+                (None, Some(val)) => {
+                    let output = construct_raw_websocket_frame(&val, true).map_err(|e| to_pingora_err(&e))?;
+                    *body = Some(Bytes::from(output));
+                }
+
+                _ => {
+                    error!("Error processing data");
+                    return Err(to_pingora_err("Error processing data"));
+                }
+            }
+            return Ok(());
+        };
+
+        // make sure we even need this data decoded or skip the tunnel
+        if session.get_header("x-tunnel").is_none() || session.get_header("x-client-uuid").is_none() {
+            return Ok(());
+        }
+
+        match ecdh_exchange(ctx, &data, None).await? {
             // tunnel is being set up, clear the body
             (Some(val), None) => {
-                ctx.init_ecdh_payload = Some(Bytes::from(val));
-
-                // this part is a hack but necessary to ensure the handshake is completed
-                *body = Some(Bytes::from(
-                    construct_raw_websocket_frame(b"init_tunnel", true).map_err(|e| to_pingora_err(&e))?,
-                ));
-                debug!("Finished handshake with middleware, waiting for return trip");
+                todo!()
             }
 
             // tunnel already setup; we only need to rewrite the response body
             (None, Some(val)) => {
-                let output = construct_raw_websocket_frame(&val, true).map_err(|e| to_pingora_err(&e))?;
-                *body = Some(Bytes::from(output));
+                todo!()
             }
 
             _ => {
@@ -100,7 +121,83 @@ impl ProxyHttp for Layer8Proxy {
             }
         }
 
-        return Ok(());
+        // let init_ecdh = |resp: &JsValue| {
+        //     let res = INMEM_STORAGE_INSTANCE.with(|storage| {
+        //         let mut inmem_storage = storage.take();
+        //         let res = internals::init_ecdh::initialize_ecdh(
+        //             Value {
+        //                 r#type: js_wrapper::Type::Object,
+        //                 constructor: "Object".to_string(),
+        //                 value: JsWrapper::Object(headers_map.clone()),
+        //             },
+        //             &mut inmem_storage,
+        //         );
+
+        //         storage.replace(inmem_storage);
+        //         res
+        //     });
+
+        //     match res {
+        //         Ok(res) => {
+        //             log("ECDH Successfully Completed!");
+        //             response_set_status(resp, 200);
+        //             response_set_status_text(resp, "ECDH Successfully Completed!");
+        //             response_add_header(resp, "mp-JWT", &res.mp_jwt);
+        //             response_add_header(resp, "server_pubKeyECDH", &res.server_public_key);
+        //             response_set_body_end(resp, res.server_public_key.as_bytes());
+        //         }
+        //         Err(err) => {
+        //             console_error(&err);
+        //             response_set_status(resp, 500);
+        //             response_set_status_text(resp, "Failure to initialize ECDH");
+        //         }
+        //     }
+        // };
+
+        // we assume we are receiving the whole body
+        let data = Layer8Envelope::from_json_bytes(&data).map_err(|e| {
+            error!("Failed to decode response: {e}, Data is :{}", String::from_utf8_lossy(data));
+            to_pingora_err(&e.to_string())
+        })?;
+
+        let content_type = session
+            .get_header("Content-Type")
+            .map(|v| v.to_str().unwrap().to_lowercase().trim().to_string());
+
+        // we must find the raw data in the body
+        if session.get_header("x-static").is_some() {
+            if let Layer8Envelope::Raw(data) = data {
+                let mut val = Vec::new();
+                base64_enc_dec
+                    .decode_vec(&data, &mut val)
+                    .map_err(|e| to_pingora_err(&format!("Failed to decode response: {e}")))?;
+                *body = Some(Bytes::from(val));
+                return Ok(());
+            }
+
+            error!("Expected body to be Layer8Envelope::Raw");
+            return Err(to_pingora_err("Expected body to be Layer8Envelope::Raw"));
+        }
+
+        // all other data must be of type wrapped in application/json
+        if session
+            .get_header("Content-Type")
+            .map(|v| v.to_str().unwrap().to_lowercase().trim().to_string())
+            .eq(&Some("application/json".to_string()))
+        {
+            if let Layer8Envelope::Http(data) = data {
+                *body = Some(Bytes::from(
+                    data.decode().map_err(|e| to_pingora_err(&format!("Failed to decode response: {e}")))?,
+                ));
+
+                return Ok(());
+            }
+
+            error!("Expected body to be Layer8Envelope::Http");
+            return Err(to_pingora_err("Expected body to be Layer8Envelope::Http"));
+        }
+
+        Ok(())
     }
 
     fn response_body_filter(&self, session: &mut Session, body: &mut Option<Bytes>, _: bool, ctx: &mut Self::CTX) -> Result<Option<Duration>>
@@ -108,51 +205,97 @@ impl ProxyHttp for Layer8Proxy {
         Self::CTX: Send + Sync,
     {
         debug!("---------------- CallStack: response_body_filter ----------------");
-        if !session.is_upgrade_req() {
-            return Ok(None);
-        }
 
-        if let Some(init_ecdh_return) = ctx.init_ecdh_payload.as_ref() {
-            debug!("---------------------------------------------------------------");
-            debug!("Sending ECDH Init Payload: {:?}", String::from_utf8_lossy(init_ecdh_return));
-            debug!("---------------------------------------------------------------");
+        if session.is_upgrade_req() {
+            if let Some(init_ecdh_return) = ctx.init_ecdh_payload.as_ref() {
+                debug!("---------------------------------------------------------------");
+                debug!("Sending ECDH Init Payload: {:?}", String::from_utf8_lossy(init_ecdh_return));
+                debug!("---------------------------------------------------------------");
 
-            let output = construct_raw_websocket_frame(init_ecdh_return, false).map_err(|e| to_pingora_err(&e))?;
-            *body = Some(Bytes::from(output));
-            ctx.init_ecdh_payload = None;
-            return Ok(None);
-        }
+                let output = construct_raw_websocket_frame(init_ecdh_return, false).map_err(|e| to_pingora_err(&e))?;
+                *body = Some(Bytes::from(output));
+                ctx.init_ecdh_payload = None;
+                return Ok(None);
+            }
 
-        if let Some(raw) = body {
-            let data = parse_payload_from_raw_frame_bytes(raw).map_err(|e| to_pingora_err(&e))?;
+            if let Some(raw) = body {
+                let data = parse_payload_from_raw_frame_bytes(raw).map_err(|e| to_pingora_err(&e))?;
 
-            debug!("---------------------------------------------------------------");
-            debug!("Parsed Outgoing Data: {:?}", String::from_utf8_lossy(&data));
-            debug!("---------------------------------------------------------------");
+                debug!("---------------------------------------------------------------");
+                debug!("Parsed Outgoing Data: {:?}", String::from_utf8_lossy(&data));
+                debug!("---------------------------------------------------------------");
 
-            let shared_secret = ctx.persistent_data.keys.0.values().collect::<Vec<_>>()[0]; // FIXME: this is a hack revisit
-            let request_data = {
-                let encrypted_data = shared_secret
-                    .symmetric_encrypt(&data)
-                    .map_err(|e| to_pingora_err(&format!("Failed to encrypt request: {e}")))?;
-                let mut val = String::new();
-                base64_enc_dec.encode_string(encrypted_data, &mut val);
+                let shared_secret = ctx.persistent_data.keys.0.values().collect::<Vec<_>>()[0]; // FIXME: this is a hack revisit
+                let request_data = {
+                    let encrypted_data = shared_secret
+                        .symmetric_encrypt(&data)
+                        .map_err(|e| to_pingora_err(&format!("Failed to encrypt request: {e}")))?;
+                    let mut val = String::new();
+                    base64_enc_dec.encode_string(encrypted_data, &mut val);
 
-                let roundtrip: WebSocketPayload = WebSocketPayload {
-                    payload: Some(val),
-                    metadata: json!({}),
+                    let roundtrip: WebSocketPayload = WebSocketPayload {
+                        payload: Some(val),
+                        metadata: json!({}),
+                    };
+
+                    construct_raw_websocket_frame(
+                        &serde_json::to_vec(&Layer8Envelope::WebSocket(roundtrip))
+                            .expect("expected the envelope to be serializable to a valid json object; qed"),
+                        false,
+                    )
+                    .map_err(|e| to_pingora_err(&e))?
                 };
 
-                construct_raw_websocket_frame(
-                    &serde_json::to_vec(&Layer8Envelope::WebSocket(roundtrip))
-                        .expect("expected the envelope to be serializable to a valid json object; qed"),
-                    false,
-                )
-                .map_err(|e| to_pingora_err(&e))?
-            };
+                *body = Some(Bytes::from(request_data));
+            }
 
-            *body = Some(Bytes::from(request_data));
+            return Ok(None);
         }
+
+        let data = match body {
+            Some(val) => Layer8Envelope::from_json_bytes(&val).map_err(|e| {
+                error!("Failed to decode response: {e}, Data is :{}", String::from_utf8_lossy(val));
+                to_pingora_err(&e.to_string())
+            })?,
+            None => {
+                info!("body is empty");
+                return Ok(None);
+            }
+        };
+
+        let content_type = session
+            .get_header("Content-Type")
+            .map(|v| v.to_str().unwrap().to_lowercase().trim().to_string());
+
+        match content_type {
+            Some(x) if x.eq("application/json") => {}
+
+            Some(x) if x.eq("multipart/form-data") => {}
+            _ => {}
+        }
+
+        // if session.get_header("multipart/form-data").is_some()
+
+        // we're dealing with statics and/or other encoding formats
+        if session.get_header("X-Static").is_some() {
+            if !matches!(data, Layer8Envelope::Raw(val) if val.len() > 0) {
+                error!("Expected a static response");
+                return Err(to_pingora_err("Expected a static response"));
+            }
+
+            if let Layer8Envelope::Raw(static_data) = data {}
+        }
+
+        // we expect the body to be raw or http data, rewrite the response body undecoded
+        // match data {
+        //     Layer8Envelope::Http(data) => {
+        //         *body = Some(Bytes::from(
+        //             data.decode().map_err(|e| to_pingora_err(&format!("Failed to decode response: {e}")))?,
+        //         ));
+        //     }
+
+        //     Layer8Envelope::WebSocket(_) => return Err(to_pingora_err("did not expect a websocket envolope for this request")),
+        // }
 
         Ok(None)
     }
