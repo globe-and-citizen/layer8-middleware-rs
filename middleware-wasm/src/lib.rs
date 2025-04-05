@@ -5,5 +5,5 @@ mod storage;
 
 pub mod middleware;
 
-pub use internals::process_data::process_data;
+pub use internals::{init_ecdh::InitEcdhReturn, process_data::process_data};
 pub use storage::{Ecdh, InMemStorage};

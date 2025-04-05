@@ -34,6 +34,7 @@ cd middleware-wasm && wasm-pack build --target nodejs --release
 ## Gotchas
 
 1. The middleware expects request data to already be aggregated, call an aggregator middleware like `app.use(express.json({ limit: '100mb' }))` before registering this middleware.
+2. When using the websockets through layer8, the reverse procy expects the message `init_tunnel` to be echoed back to the client. This is a requirement for websockets to work.
 
 ## Getting Started with the standalone software
 
