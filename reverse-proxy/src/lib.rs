@@ -1,12 +1,16 @@
 //! This is the API interface for the layer8 forward proxy.
+use core::default::Default;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use base64::{self, engine::general_purpose::URL_SAFE as base64_enc_dec, Engine as _};
 use bytes::Bytes;
-use http::Method;
+use http::{response, Method};
 use log::{debug, error, info};
-use pingora::http::{RequestHeader, ResponseHeader};
+use pingora::{
+    http::{RequestHeader, ResponseHeader},
+    modules::http::{compression::ResponseCompressionBuilder, HttpModules},
+};
 use pingora_core::{
     prelude::{HttpPeer, Opt, Result},
     server::Server,
@@ -14,16 +18,17 @@ use pingora_core::{
 use pingora_proxy::{ProxyHttp, Session};
 use serde_json::json;
 
+mod http_filters;
 mod memory;
 mod middleware;
-mod websocket_ext;
+mod websocket_filters;
 use layer8_middleware_rs::{Ecdh, InMemStorage, InitEcdhReturn};
 use layer8_primitives::{
     crypto::{base64_to_jwk, generate_key_pair, Jwk, KeyUse},
-    types::{Layer8Envelope, Request, WebSocketPayload},
+    types::{Layer8Envelope, Request, Response, WebSocketPayload},
 };
 use memory::{ConnectionContext, HTTP_INMEM_STORAGE};
-use websocket_ext::{construct_raw_websocket_frame, parse_payload_from_raw_frame_bytes};
+use websocket_filters::{construct_raw_websocket_frame, parse_payload_from_raw_frame_bytes};
 
 /// This is the reverse proxy instance for the layer8 middleware.
 struct Layer8Proxy {
@@ -45,8 +50,16 @@ impl ProxyHttp for Layer8Proxy {
                 ..Default::default()
             },
             init_echo_payload: None,
+            roundtrip_response_cache: Response::default(),
         }
     }
+
+    // // These modules allow us to provide the order of operations as a side effect since they are ran in order
+    // fn init_downstream_modules(&self, modules: &mut HttpModules) {
+    //     // Add disabled downstream compression module by default
+    //     modules.add_module(ResponseCompressionBuilder::enable(0));
+    //     // modules.add_module();
+    // }
 
     async fn request_filter(&self, session: &mut Session, _: &mut Self::CTX) -> Result<bool>
     where
@@ -228,78 +241,38 @@ impl ProxyHttp for Layer8Proxy {
             return Ok(None);
         }
 
-        // iterate on the body making sure we have everything
-        let mut acc_body = {
-            let mut val = Vec::new();
-            if let Some(body) = body {
-                val.extend_from_slice(&body);
-            }
-            val
-        };
-
         // todo @Osoro: we assume the body is complete, this may be chunked or not wholly complete
+        let mut unencrypted_body = Vec::new();
+        if let Some(body) = body {
+            unencrypted_body.extend_from_slice(body);
+        }
 
-        let downstream_session = session;
+        // for now lets assume application/json
+        {
+            // encoding headers written to the response object
+            let mut resp = Response::default();
 
-        // loop {
-        //     let data = session.().await?;
-        //     match data {
-        //         Some(val) => {
-        //             acc_body.extend_from_slice(&val);
-        //             if val.len() == 0 {
-        //                 break;
-        //             }
-        //         }
-        //         None => break,
-        //     }
-        // }
+            if let Some(written_response_headers) = session.response_written() {
+                resp.status = written_response_headers.status.as_u16();
 
-        // let data = match body {
-        //     Some(val) => Layer8Envelope::from_json_bytes(val).map_err(|e| {
-        //         error!("Failed to decode response: {e}, Data is :{}", String::from_utf8_lossy(val));
-        //         to_pingora_err(&e.to_string())
-        //     })?,
-        //     None => {
-        //         info!("body is empty");
-        //         return Ok(None);
-        //     }
-        // };
+                for (header_name, header_value) in &written_response_headers.headers {
+                    resp.headers
+                        .push((header_name.as_str().to_string(), header_value.clone().to_str().unwrap().to_string()));
+                }
+            }
 
-        // let content_type = session
-        //     .get_header("Content-Type")
-        //     .map(|v| v.to_str().unwrap().to_lowercase().trim().to_string());
+            // write response header
+            let mut response_header = ResponseHeader::build(200, None)?;
+            response_header.append_header("content-type", "application/json")?;
 
-        // match content_type {
-        //     Some(x) if x.eq("application/json") => {}
-
-        //     Some(x) if x.eq("multipart/form-data") => {}
-        //     _ => {}
-        // }
-
-        // if session.get_header("multipart/form-data").is_some()
-
-        // we're dealing with statics and/or other encoding formats
-        // if session.get_header("X-Static").is_some() {
-        //     if !matches!(data, Layer8Envelope::Raw(val) if val.len() > 0) {
-        //         error!("Expected a static response");
-        //         return Err(to_pingora_err("Expected a static response"));
-        //     }
-
-        //     if let Layer8Envelope::Raw(static_data) = data {}
-        // }
-
-        // we expect the body to be raw or http data, rewrite the response body undecoded
-        // match data {
-        //     Layer8Envelope::Http(data) => {
-        //         *body = Some(Bytes::from(
-        //             data.decode().map_err(|e| to_pingora_err(&format!("Failed to decode response: {e}")))?,
-        //         ));
-        //     }
-
-        //     Layer8Envelope::WebSocket(_) => return Err(to_pingora_err("did not expect a websocket envolope for this request")),
-        // }
+            session.write_response_header(Box::new(response_header), false).await;
+        }
 
         Ok(None)
+    }
+
+    async fn response_filter(&self, session: &mut Session, upstream_response: &mut ResponseHeader, ctx: &mut Self::CTX) -> Result<()> {
+        todo!()
     }
 
     // determines only the upstream peer

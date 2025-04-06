@@ -1,6 +1,21 @@
 //! Code in this file is heavily AI-generated, it is placeholder code for a library that we should import instead. FIXME.
 
+use std::any::Any;
+
+use pingora::modules::http::HttpModule;
 use rand::Rng;
+
+struct WebsocketModule;
+
+impl HttpModule for WebsocketModule {
+    fn as_any(&self) -> &dyn Any {
+        self as &dyn Any
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self as &mut dyn Any
+    }
+}
 
 pub fn parse_payload_from_raw_frame_bytes(data: &[u8]) -> Result<Vec<u8>, String> {
     if data.len() < 2 {
