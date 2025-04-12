@@ -62,12 +62,15 @@ Please help contribute some if you have more examples or gotchas to add to reduc
                     None => break,
                 }
             }
-    
+
+            // ... do some manipulation to the body maybe
+
+            let new_body = "Hello, World!";
             let mut header = ResponseHeader::build(200, None)?;
-            header.append_header("Content-Length", val.server_public_key.len().to_string())?;
+            header.append_header("Content-Length", new_body.len().to_string());
             session.write_response_header_ref(&header).await?;
             session
-                .write_response_body(Some(Bytes::from(body)), true)
+                .write_response_body(Some(Bytes::from(new_body.bytes())), true)
                 .await?;
         }
     }
