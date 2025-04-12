@@ -1,22 +1,24 @@
 //! This is the API interface for the layer8 forward proxy.
 use core::default::Default;
-use std::time::Duration;
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use async_trait::async_trait;
 use base64::{self, engine::general_purpose::URL_SAFE as base64_enc_dec, Engine as _};
 use bytes::Bytes;
-use http::{response, Method};
+use http::Method;
 use log::{debug, error, info};
 use pingora::{
     http::{RequestHeader, ResponseHeader},
-    modules::http::{compression::ResponseCompressionBuilder, HttpModules},
+    modules::http::HttpModules,
 };
 use pingora_core::{
     prelude::{HttpPeer, Opt, Result},
     server::Server,
 };
 use pingora_proxy::{ProxyHttp, Session};
-use serde_json::json;
 
 mod http_filters;
 mod memory;
@@ -24,15 +26,17 @@ mod middleware;
 mod websocket_filters;
 use layer8_middleware_rs::{Ecdh, InMemStorage, InitEcdhReturn};
 use layer8_primitives::{
-    crypto::{base64_to_jwk, generate_key_pair, Jwk, KeyUse},
+    crypto::{base64_to_jwk, generate_key_pair, KeyUse},
     types::{Layer8Envelope, Request, Response, WebSocketPayload},
 };
-use memory::{ConnectionContext, HTTP_INMEM_STORAGE};
-use websocket_filters::{construct_raw_websocket_frame, parse_payload_from_raw_frame_bytes};
+use memory::ConnectionContext;
+use serde_json::json;
+use websocket_filters::{construct_raw_websocket_frame, parse_payload_from_raw_frame_bytes, WebsocketModule};
 
 /// This is the reverse proxy instance for the layer8 middleware.
 struct Layer8Proxy {
     service_port: u16,
+    http_storage: Arc<Mutex<InMemStorage>>,
 }
 
 // UPSTREAM -> service_provider
@@ -49,161 +53,94 @@ impl ProxyHttp for Layer8Proxy {
                 ecdh: Ecdh { private_key, public_key },
                 ..Default::default()
             },
-            init_echo_payload: None,
-            roundtrip_response_cache: Response::default(),
+            payload_buff: Vec::new(),
         }
     }
 
-    // // These modules allow us to provide the order of operations as a side effect since they are ran in order
-    // fn init_downstream_modules(&self, modules: &mut HttpModules) {
-    //     // Add disabled downstream compression module by default
-    //     modules.add_module(ResponseCompressionBuilder::enable(0));
-    //     // modules.add_module();
-    // }
+    fn init_downstream_modules(&self, modules: &mut HttpModules) {
+        modules.add_module(WebsocketModule::module());
+    }
 
-    async fn request_filter(&self, session: &mut Session, _: &mut Self::CTX) -> Result<bool>
+    async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool>
     where
         Self::CTX: Send + Sync,
     {
+        debug!("-----------------------------------------------------------");
         debug!("---------------- CallStack: request_filter ----------------");
+        debug!("-----------------------------------------------------------");
 
         if session.get_header("l8-stop-signal").is_some() {
             info!("Received stop signal from the client");
             send_signal(libc::SIGINT);
+            return Ok(false);
         }
 
-        Ok(false)
-    }
-
-    async fn request_body_filter(&self, session: &mut Session, body: &mut Option<Bytes>, _: bool, ctx: &mut Self::CTX) -> Result<()>
-    where
-        Self::CTX: Send + Sync,
-    {
-        debug!("---------------- CallStack: request_body_filter ----------------");
-
-        // we only need to process the body if it is an upgrade request, else this can be done in the request_filter
-        // we assume a websocket connection, other upgrades are not supported
-        if session.is_upgrade_req() {
-            let data = match body {
-                Some(val) => val,
-                None => {
-                    info!("body is empty");
-                    return Ok(());
-                }
-            };
-
-            let encoded_data = parse_payload_from_raw_frame_bytes(data).map_err(|e| to_pingora_err(&e))?;
-            match ecdh_exchange(ctx, &encoded_data, session).await? {
-                // tunnel is being set up, clear the body
-                (Some(init_value), None) => {
-                    let payload = Layer8Envelope::WebSocket(WebSocketPayload {
-                        payload: None,
-                        metadata: json!({
-                            "server_pubKeyECDH": init_value.server_public_key,
-                            "mp-jwt": init_value.mp_jwt
-                        }),
-                    })
-                    .to_json_bytes();
-
-                    ctx.init_echo_payload = Some(Bytes::from(payload));
-                    *body = Some(Bytes::from(
-                        construct_raw_websocket_frame(b"init_tunnel", true).map_err(|e| to_pingora_err(&e))?,
-                    ));
-
-                    debug!("Finished handshake with middleware, waiting for return trip");
-                }
-
-                // tunnel already setup; we only need to rewrite the response body
-                (None, Some(val)) => {
-                    let output = construct_raw_websocket_frame(&val, true).map_err(|e| to_pingora_err(&e))?;
-                    *body = Some(Bytes::from(output));
-                }
-
-                _ => {
-                    error!("Error processing data");
-                    return Err(to_pingora_err("Error processing data"));
-                }
-            }
-            return Ok(());
+        // we don't process requests that are not part of the tunnel, or for duplex connections in this filter
+        if session.is_upgrade_req() || (session.get_header("x-tunnel").is_none() && session.get_header("x-client-uuid").is_none()) {
+            return Ok(false);
         }
 
-        // we don't process requests that are not part of the tunnel
-        if session.get_header("x-tunnel").is_none() && session.get_header("x-client-uuid").is_none() {
-            return Ok(());
-        }
-
-        let mut acc_body = {
-            let mut val = Vec::new();
-            if let Some(body) = body {
-                val.extend_from_slice(&body);
-            }
-            val
-        };
-
-        // loading the entire response to in-memory, maybe do chunked enc/dec for the protocol?
-        // todo @Osoro, Ref:<https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Transfer-Encoding>
+        let mut body = Vec::new();
         loop {
-            let data = session.read_request_body().await?;
-            match data {
-                Some(val) => {
-                    acc_body.extend_from_slice(&val);
-                    if val.len() == 0 {
-                        // todo: check condition behavior at runtime and check-off
-                        break;
-                    }
+            match session.read_request_body().await? {
+                Some(data) => {
+                    body.extend_from_slice(&data);
                 }
-                None => break,
+                None => {
+                    debug!("No data to read");
+                    break;
+                }
             }
         }
 
-        match ecdh_exchange(ctx, &acc_body, session).await? {
+        let body = if body.is_empty() { None } else { Some(Bytes::from(body)) };
+        match self.ecdh_exchange(ctx, &body, session).await? {
             // tunnel is being set up, clear the body
             (Some(val), None) => {
                 // let's respond without even sending this to the server
                 let mut header = ResponseHeader::build(200, None)?;
-                header.append_header("mp-JWT", val.mp_jwt.clone())?;
-                header.append_header("server_pubKeyECDH", val.server_public_key.clone())?;
-                session.write_response_header(Box::new(header), false).await?;
+                header.append_header("Content-Length", val.server_public_key.len().to_string())?;
+                session.write_response_header_ref(&header).await?;
 
-                let server_public_key = val.server_public_key.clone();
                 session
-                    .write_response_body(
-                        Some(Bytes::from(Layer8Envelope::Raw(server_public_key.as_bytes().to_vec()).to_json_bytes())),
-                        false,
-                    )
+                    .write_response_body(Some(Bytes::from(val.server_public_key.as_bytes().to_vec())), true)
                     .await?;
 
-                info!("ECDH Successfully Completed!");
+                return Ok(true);
             }
 
-            // tunnel already setup; we only need to rewrite the response body
-            (None, Some(val)) => {
-                *body = Some(Bytes::from(val));
-            }
+            // tunnel already setup; we only need to propagate the intended request body to the request_body filter
+            (None, Some(payload)) => ctx.payload_buff = payload,
 
             _ => {
                 return Err(to_pingora_err("Error processing data"));
             }
         }
 
-        Ok(())
+        Ok(false)
     }
 
-    fn response_body_filter(&self, session: &mut Session, body: &mut Option<Bytes>, _: bool, ctx: &mut Self::CTX) -> Result<Option<Duration>>
+    fn response_body_filter(
+        &self,
+        session: &mut Session,
+        body: &mut Option<Bytes>,
+        end_of_stream: bool,
+        ctx: &mut Self::CTX,
+    ) -> Result<Option<Duration>>
     where
         Self::CTX: Send + Sync,
     {
         debug!("---------------- CallStack: response_body_filter ----------------");
 
         if session.is_upgrade_req() {
-            if let Some(init_echo_payload) = ctx.init_echo_payload.as_ref() {
+            if let Some(init_echo_payload) = ctx.payload_buff.as_ref() {
                 debug!("---------------------------------------------------------------");
                 debug!("Sending ECDH Init Payload: {:?}", String::from_utf8_lossy(init_echo_payload));
                 debug!("---------------------------------------------------------------");
 
                 let output = construct_raw_websocket_frame(init_echo_payload, false).map_err(|e| to_pingora_err(&e))?;
                 *body = Some(Bytes::from(output));
-                ctx.init_echo_payload = None;
+                ctx.payload_buff = None;
                 return Ok(None);
             }
 
@@ -241,10 +178,15 @@ impl ProxyHttp for Layer8Proxy {
             return Ok(None);
         }
 
-        // todo @Osoro: we assume the body is complete, this may be chunked or not wholly complete
-        let mut unencrypted_body = Vec::new();
-        if let Some(body) = body {
-            unencrypted_body.extend_from_slice(body);
+        // buffer the data
+        if let Some(b) = body {
+            ctx.payload_buff.extend_from_slice(&b[..]);
+            b.clear();
+        }
+
+        // we're still not at the last chunk, can't process the data yet
+        if !end_of_stream {
+            return Ok(None);
         }
 
         // for now lets assume application/json
@@ -265,14 +207,10 @@ impl ProxyHttp for Layer8Proxy {
             let mut response_header = ResponseHeader::build(200, None)?;
             response_header.append_header("content-type", "application/json")?;
 
-            session.write_response_header(Box::new(response_header), false).await;
+            // session.write_response_header(Box::new(response_header), false).await;xxx
         }
 
         Ok(None)
-    }
-
-    async fn response_filter(&self, session: &mut Session, upstream_response: &mut ResponseHeader, ctx: &mut Self::CTX) -> Result<()> {
-        todo!()
     }
 
     // determines only the upstream peer
@@ -294,173 +232,226 @@ pub fn run_proxy_server(port: u16, service_port: u16, daemonize: bool) {
     })
     .unwrap();
 
-    let mut middleware = pingora_proxy::http_proxy_service(&server.configuration, Layer8Proxy { service_port });
+    let storage = {
+        let (private_key, public_key) = generate_key_pair(KeyUse::Ecdh).expect("expected this call to be infallible");
+        InMemStorage {
+            ecdh: Ecdh { private_key, public_key },
+            ..Default::default()
+        }
+    };
+
+    let mut middleware = pingora_proxy::http_proxy_service(
+        &server.configuration,
+        Layer8Proxy {
+            service_port,
+            http_storage: Arc::new(Mutex::new(storage)),
+        },
+    );
     middleware.add_tcp(&format!("0.0.0.0:{}", port));
     server.add_service(middleware);
     server.run_forever()
 }
 
-// if (Some(val), None) =>  the data from the client is for the the init tunnel handshake
-// (None, Some(val)) => the data from the client is from a subsequent call after the tunnel had been established
-async fn ecdh_exchange(ctx: &mut ConnectionContext, data: &[u8], session: &mut Session) -> Result<(Option<InitEcdhReturn>, Option<Vec<u8>>)> {
-    let envelope = Layer8Envelope::from_json_bytes(data).map_err(|e| {
-        error!("Failed to decode response: {e}, Data is :{}", String::from_utf8_lossy(data));
-        to_pingora_err(&e.to_string())
-    })?;
+impl Layer8Proxy {
+    // if (Some(val), None) =>  the data from the client is for the the init tunnel handshake
+    // (None, Some(val)) => the data from the client is from a subsequent call after the tunnel had been established
+    async fn ecdh_exchange(
+        &self,
+        ctx: &mut ConnectionContext,
+        body: &Option<Bytes>,
+        session: &mut Session,
+    ) -> Result<(Option<InitEcdhReturn>, Option<Vec<u8>>)> {
+        let (metadata, envelope) = match body {
+            Some(data) => {
+                let envelope = Layer8Envelope::from_json_bytes(data).map_err(|e| {
+                    error!("Failed to decode response: {e}, Data is :{}", String::from_utf8_lossy(data));
+                    to_pingora_err(&e.to_string())
+                })?;
 
-    let metadata = match &envelope {
-        Layer8Envelope::WebSocket(payload) => serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(payload.metadata.clone())
-            .expect("we expect a json object as the metadata"),
+                match envelope {
+                    Layer8Envelope::WebSocket(payload) => {
+                        let metadata = serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(payload.metadata.clone())
+                            .expect("we expect a json object as the metadata");
+                        (metadata, Some(payload))
+                    }
 
-        // we have the the metadata data in the headers
-        Layer8Envelope::Http(_) | Layer8Envelope::Raw(_) => {
-            let mut map = serde_json::Map::new();
-            ["x-ecdh-init", "x-client-uuid", "mp-jwt"].iter().for_each(|val| {
-                if let Some(header_val) = session.get_header(*val) {
-                    map.insert(
-                        val.to_string(),
-                        header_val.to_str().expect("all header values are expected to be in ascii").into(),
-                    );
+                    Layer8Envelope::Http(roundtrip) => {
+                        let storage = Arc::clone(&self.http_storage);
+
+                        // let storage = self.http_storage.read().unwrap();
+
+                        // let storage = HTTP_INMEM_STORAGE.read().unwrap();
+
+                        let keys = storage.lock().unwrap().keys.clone();
+                        debug!("---------------------------------------------------------------");
+                        debug!("Printing the storage keys: {:?}", keys);
+                        debug!("---------------------------------------------------------------");
+
+                        let client_uuid = session
+                            .get_header("x-client-uuid")
+                            .expect("we expect the x-client-uuid to be present in the headers")
+                            .to_str()
+                            .expect("all header values are expected to be in ascii");
+
+                        let response_data = roundtrip
+                            .decode()
+                            .map_err(|e| to_pingora_err(&format!("Failed to decode response: {}", e)))?;
+
+                        let shared_secret = keys.get(client_uuid).ok_or_else(|| {
+                            error!("Failed to find shared secret for client uuid: {}", client_uuid);
+                            to_pingora_err("Failed to find shared secret for client uuid")
+                        })?;
+
+                        let payload = shared_secret
+                            .symmetric_decrypt(&response_data)
+                            .map_err(|e| to_pingora_err(&format!("Failed to decrypt response: {}", e)))?;
+
+                        // we expect the payload to be a json object of type Request
+                        let resp =
+                            serde_json::from_slice::<Request>(&payload).map_err(|e| to_pingora_err(&format!("Failed to decode response: {}", e)))?;
+
+                        // updating the headers and the path uri to the service provider
+                        let req_header = session.req_header_mut();
+                        *req_header = RequestHeader::build(
+                            Method::from_bytes(resp.method.as_bytes()).map_err(|e| to_pingora_err(&e.to_string()))?,
+                            resp.url_path.unwrap_or("/".to_string()).as_bytes(),
+                            Some(resp.body.len()),
+                        )?;
+
+                        resp.headers.iter().for_each(|(key, val)| {
+                            req_header.append_header(key.clone(), val).expect("expected the header to be valid");
+                        });
+
+                        return Ok((None, Some(resp.body)));
+                    }
+
+                    Layer8Envelope::Raw(raw) => {
+                        let storage = Arc::clone(&self.http_storage);
+
+                        let client_uuid = session
+                            .get_header("x-client-uuid")
+                            .expect("we expect the x-client-uuid to be present in the headers")
+                            .to_str()
+                            .expect("all header values are expected to be in ascii");
+
+                        let keys = storage.lock().unwrap().keys.clone();
+                        let shared_secret = keys.get(client_uuid).ok_or_else(|| {
+                            error!("Failed to find shared secret for client uuid: {}", client_uuid);
+                            to_pingora_err("Failed to find shared secret for client uuid")
+                        })?;
+
+                        let payload = shared_secret
+                            .symmetric_decrypt(&base64_enc_dec.decode(&raw).map_err(|e| to_pingora_err(&e.to_string()))?)
+                            .map_err(|e| to_pingora_err(&e))?;
+
+                        return Ok((None, Some(payload)));
+                    }
                 }
-            });
+            }
 
-            map
-        }
-    };
+            None => {
+                if session.is_upgrade_req() {
+                    return Err(to_pingora_err("we don't expect a websocket request to get here; report this as a bug"));
+                }
 
-    let x_client_uuid = metadata.get("x-client-uuid").and_then(|x| x.as_str());
+                // we expect the metadata to be in the headers, so no need to decode the body
+                let mut map = serde_json::Map::new();
+                ["x-ecdh-init", "x-client-uuid", "mp-jwt"].iter().for_each(|val| {
+                    if let Some(header_val) = session.get_header(*val) {
+                        map.insert(
+                            val.to_string(),
+                            header_val.to_str().expect("all header values are expected to be in ascii").into(),
+                        );
+                    }
+                });
 
-    // if we have the x-ecdh-init, this is the first time we are setting up the tunnel
-    if let Some(x_ecdh_init) = metadata.get("x-ecdh-init").and_then(|x| x.as_str()) {
-        let mp_jwt = metadata.get("mp-jwt").and_then(|y| y.as_str());
-        let (x_client_uuid, mp_jwt) = match (x_client_uuid, mp_jwt) {
-            (Some(x), Some(y)) => (x, y),
-            _ => {
-                return Err(to_pingora_err("expected x-client-uuid, and mp-jwt in the metadata"));
+                (map, None)
             }
         };
 
-        return init_ecdh_tunnel(ctx, session, x_ecdh_init, x_client_uuid, mp_jwt).map(|val| (Some(val), None::<Vec<u8>>));
+        let x_client_uuid = metadata.get("x-client-uuid").and_then(|x| x.as_str());
+
+        // if we have the x-ecdh-init, this is the first time we are setting up the tunnel
+        if let Some(x_ecdh_init) = metadata.get("x-ecdh-init").and_then(|x| x.as_str()) {
+            let mp_jwt = metadata.get("mp-jwt").and_then(|y| y.as_str());
+            let (x_client_uuid, mp_jwt) = match (x_client_uuid, mp_jwt) {
+                (Some(x), Some(y)) => (x, y),
+                _ => {
+                    return Err(to_pingora_err("expected x-client-uuid, and mp-jwt in the metadata"));
+                }
+            };
+
+            let val = match session.is_upgrade_req() {
+                true => init_ecdh_tunnel(&mut ctx.persistent_storage, x_ecdh_init, x_client_uuid, mp_jwt).map(|val| (Some(val), None::<Vec<u8>>)),
+                false => {
+                    let storage = Arc::clone(&self.http_storage);
+                    let mut storage = storage.lock().unwrap();
+                    init_ecdh_tunnel(&mut storage, x_ecdh_init, x_client_uuid, mp_jwt).map(|val| (Some(val), None::<Vec<u8>>))
+                }
+            };
+
+            return val;
+        }
+
+        let client_uuid = x_client_uuid.expect("expected x-client-uuid to be present; report this as a bug");
+
+        // at this point we retrieve our keys and decrypt the data in the payload section
+        match envelope {
+            Some(ws_data) => {
+                if ws_data.payload.is_none() {
+                    return Err(to_pingora_err("expected a payload in the websocket envelope"));
+                }
+
+                let payload = ctx
+                    .persistent_storage
+                    .keys
+                    .get(client_uuid)
+                    .ok_or_else(|| {
+                        error!("Failed to find shared secret for client uuid: {}", client_uuid);
+                        to_pingora_err("Failed to find shared secret for client uuid")
+                    })?
+                    .symmetric_decrypt(
+                        &base64_enc_dec
+                            .decode(ws_data.payload.expect("expected the payload to be present"))
+                            .map_err(|e| to_pingora_err(&e.to_string()))?,
+                    )
+                    .map_err(|e| to_pingora_err(&e))?;
+
+                Ok((None, Some(payload)))
+            }
+
+            None => Err(to_pingora_err("expected a websocket envelope; report this as a bug")),
+        }
     }
-
-    let client_uuid = x_client_uuid.expect("expected x-client-uuid to be present; report this as a bug");
-
-    // we need to get the shared secret from the in memory storage, this might be different if the connection is a duplex
-    // connection or not.
-    let shared_secret = |is_duplex_connection| -> Result<Jwk> {
-        let storage = match is_duplex_connection {
-            true => &ctx.persistent_storage,
-            false => &HTTP_INMEM_STORAGE.lock().unwrap(),
-        };
-
-        storage
-            .keys
-            .get(client_uuid)
-            .ok_or_else(|| {
-                error!("Failed to find shared secret for client uuid: {}", client_uuid);
-                to_pingora_err("Failed to find shared secret for client uuid")
-            })
-            .cloned()
-    };
-
-    // at this point we retrieve our keys and decrypt the data in the payload section
-    let payload = match envelope {
-        Layer8Envelope::WebSocket(ws_data) => {
-            if ws_data.payload.is_none() {
-                return Err(to_pingora_err("expected a payload in the websocket envelope"));
-            }
-
-            shared_secret(true)?
-                .symmetric_decrypt(
-                    &base64_enc_dec
-                        .decode(ws_data.payload.expect("expected the payload to be present"))
-                        .map_err(|e| to_pingora_err(&e.to_string()))?,
-                )
-                .map_err(|e| to_pingora_err(&e))?
-        }
-
-        Layer8Envelope::Http(roundtrip) => {
-            let response_data = roundtrip
-                .decode()
-                .map_err(|e| to_pingora_err(&format!("Failed to decode response: {}", e)))?;
-
-            let payload = shared_secret(false)?
-                .symmetric_decrypt(&response_data)
-                .map_err(|e| to_pingora_err(&format!("Failed to decrypt response: {}", e)))?;
-
-            // we expect the payload to be a json object of type Request
-            let resp = serde_json::from_slice::<Request>(&payload).map_err(|e| to_pingora_err(&format!("Failed to decode response: {}", e)))?;
-
-            // updating the headers and the path uri to the service provider
-            let req_header = session.req_header_mut();
-            *req_header = RequestHeader::build(
-                Method::from_bytes(resp.method.as_bytes()).map_err(|e| to_pingora_err(&e.to_string()))?,
-                resp.url_path.unwrap_or("/".to_string()).as_bytes(),
-                Some(resp.body.len()),
-            )?;
-
-            resp.headers.iter().for_each(|(key, val)| {
-                req_header.append_header(key.clone(), val).expect("expected the header to be valid");
-            });
-
-            resp.body
-        }
-
-        Layer8Envelope::Raw(raw) => {
-            let payload = shared_secret(false)?
-                .symmetric_decrypt(&base64_enc_dec.decode(&raw).map_err(|e| to_pingora_err(&e.to_string()))?)
-                .map_err(|e| to_pingora_err(&e))?;
-
-            payload
-        }
-    };
-
-    Ok((None, Some(payload)))
 }
 
-fn init_ecdh_tunnel(
-    ctx: &mut ConnectionContext,
-    session: &mut Session,
-    x_ecdh_init: &str,
-    x_client_uuid: &str,
-    mp_jwt: &str,
-) -> Result<InitEcdhReturn> {
-    let establish_tunnel = |persistent_storage: &mut InMemStorage| -> Result<InitEcdhReturn> {
-        let user_pub_jwk = base64_to_jwk(x_ecdh_init).map_err(|e| to_pingora_err(&format!("failure to decode userPubJwk: {e}")))?;
+fn init_ecdh_tunnel(storage: &mut InMemStorage, x_ecdh_init: &str, x_client_uuid: &str, mp_jwt: &str) -> Result<InitEcdhReturn> {
+    let user_pub_jwk = base64_to_jwk(x_ecdh_init).map_err(|e| to_pingora_err(&format!("failure to decode userPubJwk: {e}")))?;
 
-        debug!("---------------------------------------------------------------");
-        debug!("InMemStorage: {:?}", persistent_storage);
-        debug!("---------------------------------------------------------------");
+    debug!("---------------------------------------------------------------");
+    debug!("InMemStorage: {:?}", storage);
+    debug!("---------------------------------------------------------------");
 
-        let shared_secret = persistent_storage
-            .ecdh
-            .get_private_key()
-            .get_ecdh_shared_secret(&user_pub_jwk)
-            .map_err(|e| to_pingora_err(&e))?;
+    let shared_secret = storage
+        .ecdh
+        .get_private_key()
+        .get_ecdh_shared_secret(&user_pub_jwk)
+        .map_err(|e| to_pingora_err(&e))?;
 
-        // adding the shared secret to the keys
-        persistent_storage.keys.add(x_client_uuid, shared_secret.clone());
+    // adding the shared secret to the keys
+    storage.keys.add(x_client_uuid, shared_secret.clone());
 
-        let b64_shared_secret = shared_secret.export_as_base64();
-        let b64_pub_key = persistent_storage.ecdh.get_public_key().export_as_base64();
+    let b64_shared_secret = shared_secret.export_as_base64();
+    let b64_pub_key = storage.ecdh.get_public_key().export_as_base64();
 
-        // saving the mp-jwt to the jwts
-        persistent_storage.jwts.add(x_client_uuid, mp_jwt);
+    // saving the mp-jwt to the jwts
+    storage.jwts.add(x_client_uuid, mp_jwt);
 
-        Ok(InitEcdhReturn {
-            shared_secret: b64_shared_secret,
-            server_public_key: b64_pub_key,
-            mp_jwt: mp_jwt.to_string(),
-        })
-    };
-
-    if session.is_upgrade_req() {
-        return establish_tunnel(&mut ctx.persistent_storage);
-    }
-
-    let ref_count = HTTP_INMEM_STORAGE.clone();
-    let mut storage = ref_count.lock().unwrap();
-    establish_tunnel(&mut storage)
+    Ok(InitEcdhReturn {
+        shared_secret: b64_shared_secret,
+        server_public_key: b64_pub_key,
+        mp_jwt: mp_jwt.to_string(),
+    })
 }
 
 pub(crate) fn to_pingora_err(val: &str) -> Box<pingora_core::Error> {

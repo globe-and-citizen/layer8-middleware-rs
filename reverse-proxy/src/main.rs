@@ -1,23 +1,13 @@
 use env_logger::{Env, Target};
 use forward_proxy::run_proxy_server;
 use log::{error, info, warn, LevelFilter};
-use std::io::Write;
 
 fn main() {
     dotenv::dotenv().ok();
 
-    env_logger::Builder::from_env(Env::default())
-        .format(|buf, record| {
-            writeln!(
-                buf,
-                "{}:{} {} [{}] - {}",
-                record.file().unwrap_or("unknown"),
-                record.line().unwrap_or(0),
-                chrono::Local::now().format("%Y-%m-%dT%H:%M:%S"),
-                record.level(),
-                record.args()
-            )
-        })
+    env_logger::Builder::from_env(Env::default().write_style_or("RUST_LOG_STYLE", "always"))
+        .format_file(true)
+        .format_line_number(true)
         .target(Target::Stdout)
         .filter(Some("logger_example"), LevelFilter::Debug)
         .init();

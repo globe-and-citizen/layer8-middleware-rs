@@ -8,7 +8,7 @@ use crate::{
     storage::InMemStorage,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct InitEcdhReturn {
     #[allow(dead_code)]
     pub shared_secret: String,

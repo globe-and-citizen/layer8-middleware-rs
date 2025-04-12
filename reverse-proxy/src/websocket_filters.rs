@@ -2,10 +2,22 @@
 
 use std::any::Any;
 
-use pingora::modules::http::HttpModule;
+use pingora::modules::http::{HttpModule, HttpModuleBuilder, ModuleBuilder};
 use rand::Rng;
 
-struct WebsocketModule;
+pub struct WebsocketModule;
+
+impl WebsocketModule {
+    pub fn module() -> ModuleBuilder {
+        Box::new(WebsocketModule)
+    }
+}
+
+impl HttpModuleBuilder for WebsocketModule {
+    fn init(&self) -> pingora::modules::http::Module {
+        Box::new(WebsocketModule)
+    }
+}
 
 impl HttpModule for WebsocketModule {
     fn as_any(&self) -> &dyn Any {
