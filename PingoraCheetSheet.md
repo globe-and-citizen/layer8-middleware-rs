@@ -1,5 +1,7 @@
 # Pingora Cheet Sheet
 
+This is companion documentation for the examples here: https://github.com/cloudflare/pingora/tree/main/pingora-proxy/examples
+
 This cheat sheet is data from some examples I have used and things I learnt at runtime when working with Pingora through trial and error.
 Please help contribute some if you have more examples or gotchas to add to reduce paper-cuts and bad dev experiences.
 
@@ -32,9 +34,9 @@ Please help contribute some if you have more examples or gotchas to add to reduc
     }
     ```
 
-2. Gotcha: process requests without interacting with the server
+2. Gotcha: content-length header gotcha
 
-    If you want to respond to requests at the proxy level for reasons ranging from it acting a cache to just wanting to process requests without hitting the server, you can do so by returning `Ok(true)` in the `request_filter` method:
+    If you want to respond to requests at the proxy level for reasons ranging from it acting as a cache to just wanting to process requests without hitting the server, you can do so by returning `Ok(true)` in the `request_filter` method:
 
     ```rust
     async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool>
@@ -73,7 +75,7 @@ Please help contribute some if you have more examples or gotchas to add to reduc
 
     The `Content-Length` is not implicitly added so other servers may not respond correctly if it's missing. A Go server always looks for an EOF error to determine the end of the request body, so make sure to include it.
 
-3. Modifying Responses from the server.
+3. Gotcha: modifying a response from the server.
     If you want to modify the response from the server, you can do so in the `response_body_filter` method:
 
     ```rust
