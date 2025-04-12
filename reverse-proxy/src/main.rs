@@ -30,7 +30,10 @@ fn main() {
 
     let service_port = std::env::var("SERVICE_PORT")
         .map(|v| match v.parse::<u16>() {
-            Ok(port) => port,
+            Ok(port) => {
+                info!("Using service port: {}", port);
+                port
+            }
             Err(_) => {
                 error!("Failed to parse SERVICE_PORT environment variable. Using default port 8080");
                 panic!("Failed to parse SERVICE_PORT environment variable");

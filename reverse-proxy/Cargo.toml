@@ -25,11 +25,10 @@ rand = "0.9.0"
 base64 = "0.22.1"
 libc = "0.2.171"
 layer8-primitives = "0.1.2"
-lazy_static = "1.5.0"
-once_cell = "1.21.3"
+# lazy_static = "1.5.0"
+# once_cell = "1.21.3"
 
 [dev-dependencies]
-# layer8-tungstenite = { git = "https://github.com/globe-and-citizen/layer8-tungstenite.git", branch = "master" }
 env_logger = "0.11.7"
 hyper = { version = "1", features = ["full"] }
 hyper-util = "0.1"

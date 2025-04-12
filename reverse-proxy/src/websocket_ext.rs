@@ -5,30 +5,6 @@ use std::any::Any;
 use pingora::modules::http::{HttpModule, HttpModuleBuilder, ModuleBuilder};
 use rand::Rng;
 
-pub struct WebsocketModule;
-
-impl WebsocketModule {
-    pub fn module() -> ModuleBuilder {
-        Box::new(WebsocketModule)
-    }
-}
-
-impl HttpModuleBuilder for WebsocketModule {
-    fn init(&self) -> pingora::modules::http::Module {
-        Box::new(WebsocketModule)
-    }
-}
-
-impl HttpModule for WebsocketModule {
-    fn as_any(&self) -> &dyn Any {
-        self as &dyn Any
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self as &mut dyn Any
-    }
-}
-
 pub fn parse_payload_from_raw_frame_bytes(data: &[u8]) -> Result<Vec<u8>, String> {
     if data.len() < 2 {
         return Err("Data too short".to_string());

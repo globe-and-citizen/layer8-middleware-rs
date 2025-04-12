@@ -8,7 +8,7 @@ use std::{
 use async_trait::async_trait;
 use base64::{self, engine::general_purpose::URL_SAFE as base64_enc_dec, Engine as _};
 use bytes::Bytes;
-use http::Method;
+use http::{header, Method};
 use log::{debug, error, info};
 use pingora::{
     http::{RequestHeader, ResponseHeader},
@@ -23,7 +23,7 @@ use pingora_proxy::{ProxyHttp, Session};
 mod http_filters;
 mod memory;
 mod middleware;
-mod websocket_filters;
+mod websocket_ext;
 use layer8_middleware_rs::{Ecdh, InMemStorage, InitEcdhReturn};
 use layer8_primitives::{
     crypto::{base64_to_jwk, generate_key_pair, KeyUse},
@@ -31,7 +31,7 @@ use layer8_primitives::{
 };
 use memory::ConnectionContext;
 use serde_json::json;
-use websocket_filters::{construct_raw_websocket_frame, parse_payload_from_raw_frame_bytes, WebsocketModule};
+use websocket_ext::{construct_raw_websocket_frame, parse_payload_from_raw_frame_bytes};
 
 /// This is the reverse proxy instance for the layer8 middleware.
 struct Layer8Proxy {
@@ -54,12 +54,11 @@ impl ProxyHttp for Layer8Proxy {
                 ..Default::default()
             },
             payload_buff: Vec::new(),
+            response_constructor: None,
         }
     }
 
-    fn init_downstream_modules(&self, modules: &mut HttpModules) {
-        modules.add_module(WebsocketModule::module());
-    }
+    fn init_downstream_modules(&self, _: &mut HttpModules) {}
 
     async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool>
     where
@@ -87,7 +86,7 @@ impl ProxyHttp for Layer8Proxy {
                     body.extend_from_slice(&data);
                 }
                 None => {
-                    debug!("No data to read");
+                    debug!("No more data to read, buffered data is: {} bytes", body.len());
                     break;
                 }
             }
@@ -120,6 +119,35 @@ impl ProxyHttp for Layer8Proxy {
         Ok(false)
     }
 
+    fn upstream_response_trailer_filter(&self, _session: &mut Session, upstream_trailers: &mut header::HeaderMap, ctx: &mut Self::CTX) -> Result<()> {
+        // we need to collect the trailers
+        debug!("-----------------------------------------------------------------------------");
+        debug!("---------------- CallStack: upstream_response_trailer_filter ----------------");
+        debug!("-----------------------------------------------------------------------------");
+
+        let mut headers = Vec::new();
+        for (header_name, header_value) in upstream_trailers.iter() {
+            debug!("Trailer: {:?} => {:?}", header_name, header_value);
+            headers.push((header_name.as_str().to_string(), header_value.to_str().unwrap_or("").to_string()));
+        }
+
+        *upstream_trailers = header::HeaderMap::new();
+        match ctx.response_constructor {
+            Some(ref mut resp_constructor) => {
+                resp_constructor.headers = headers;
+            }
+            None => {
+                ctx.response_constructor = Some(Response {
+                    status: 200,
+                    headers,
+                    ..Default::default()
+                });
+            }
+        }
+
+        Ok(())
+    }
+
     fn response_body_filter(
         &self,
         session: &mut Session,
@@ -130,17 +158,15 @@ impl ProxyHttp for Layer8Proxy {
     where
         Self::CTX: Send + Sync,
     {
+        debug!("-----------------------------------------------------------------");
         debug!("---------------- CallStack: response_body_filter ----------------");
+        debug!("-----------------------------------------------------------------");
 
         if session.is_upgrade_req() {
-            if let Some(init_echo_payload) = ctx.payload_buff.as_ref() {
-                debug!("---------------------------------------------------------------");
-                debug!("Sending ECDH Init Payload: {:?}", String::from_utf8_lossy(init_echo_payload));
-                debug!("---------------------------------------------------------------");
-
-                let output = construct_raw_websocket_frame(init_echo_payload, false).map_err(|e| to_pingora_err(&e))?;
+            if !ctx.payload_buff.is_empty() {
+                let output = construct_raw_websocket_frame(&ctx.payload_buff, false).map_err(|e| to_pingora_err(&e))?;
                 *body = Some(Bytes::from(output));
-                ctx.payload_buff = None;
+                ctx.payload_buff.clear();
                 return Ok(None);
             }
 
@@ -184,10 +210,14 @@ impl ProxyHttp for Layer8Proxy {
             b.clear();
         }
 
-        // we're still not at the last chunk, can't process the data yet
         if !end_of_stream {
+            // we're still not at the last chunk, can't process the data yet
             return Ok(None);
         }
+
+        debug!("---------------------------------------------------------------");
+        debug!("Response Body: {:?}", String::from_utf8_lossy(&ctx.payload_buff));
+        debug!("---------------------------------------------------------------");
 
         // for now lets assume application/json
         {
@@ -207,7 +237,7 @@ impl ProxyHttp for Layer8Proxy {
             let mut response_header = ResponseHeader::build(200, None)?;
             response_header.append_header("content-type", "application/json")?;
 
-            // session.write_response_header(Box::new(response_header), false).await;xxx
+            // session.write_response_header(Box::new(response_header), false).await;
         }
 
         Ok(None)
@@ -247,7 +277,7 @@ pub fn run_proxy_server(port: u16, service_port: u16, daemonize: bool) {
             http_storage: Arc::new(Mutex::new(storage)),
         },
     );
-    middleware.add_tcp(&format!("0.0.0.0:{}", port));
+    middleware.add_tcp(&format!("127.0.0.1:{}", port));
     server.add_service(middleware);
     server.run_forever()
 }
@@ -278,10 +308,6 @@ impl Layer8Proxy {
                     Layer8Envelope::Http(roundtrip) => {
                         let storage = Arc::clone(&self.http_storage);
 
-                        // let storage = self.http_storage.read().unwrap();
-
-                        // let storage = HTTP_INMEM_STORAGE.read().unwrap();
-
                         let keys = storage.lock().unwrap().keys.clone();
                         debug!("---------------------------------------------------------------");
                         debug!("Printing the storage keys: {:?}", keys);
@@ -311,7 +337,9 @@ impl Layer8Proxy {
                             serde_json::from_slice::<Request>(&payload).map_err(|e| to_pingora_err(&format!("Failed to decode response: {}", e)))?;
 
                         // updating the headers and the path uri to the service provider
+
                         let req_header = session.req_header_mut();
+
                         *req_header = RequestHeader::build(
                             Method::from_bytes(resp.method.as_bytes()).map_err(|e| to_pingora_err(&e.to_string()))?,
                             resp.url_path.unwrap_or("/".to_string()).as_bytes(),
