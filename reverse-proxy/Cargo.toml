@@ -12,7 +12,7 @@ async-trait = "0.1"
 log = "0.4"
 pingora-core = "0.4"
 pingora-proxy = "0.4"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["sync"] }
 env_logger = "0.11.7"
 dotenv = "0.15"
 layer8-middleware-rs = { path = "../middleware-wasm" }
@@ -24,9 +24,9 @@ chrono = "0.4.39"
 rand = "0.9.0"
 base64 = "0.22.1"
 libc = "0.2.171"
-layer8-primitives = "0.1.2"
-# lazy_static = "1.5.0"
-# once_cell = "1.21.3"
+# TODO: update once <https://github.com/globe-and-citizen/layer8-primitives-rs/pull/15> and next version has been released
+layer8-primitives = { git = "https://github.com/globe-and-citizen/layer8-primitives-rs.git", branch = "upd/split-metadata-from-header" }
+url = "2.5.4"
 
 [dev-dependencies]
 env_logger = "0.11.7"

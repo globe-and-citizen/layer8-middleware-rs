@@ -219,15 +219,21 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
         }
     };
 
-    match process_data(&body, &symmetric_key) {
-        Ok(processed_req) => {
+    let req_metadata = headers_map
+        .get("layer8-request-header")
+        .expect_throw("expected the request to have a x-tunnel-metadata header; qed")
+        .to_string()
+        .expect_throw("expected the x-tunnel-metadata header to be of type string; qed");
+
+    match process_data(&body, &req_metadata, &symmetric_key) {
+        Ok((processed_req, processed_req_metadata)) => {
             log("Successfully processed data!");
 
             // propagate the request's original method
-            request_set_method(&req, &processed_req.method);
+            request_set_method(&req, &processed_req_metadata.method);
 
             // propagate the request's original url
-            if let Some(val) = processed_req.url_path {
+            if let Some(val) = processed_req_metadata.url_path {
                 log(&format!("Parsed URL: {}", val));
                 request_set_url(&req, &val);
             }
@@ -253,7 +259,7 @@ pub fn wasm_middleware(req: JsValue, res: JsValue, next: JsValue) {
                 }
             };
 
-            match processed_req.headers.get("content-type") {
+            match processed_req_metadata.headers.get("content-type") {
                 Some(x) if x.eq("application/layer8.buffer+json") => {
                     let form_data = match convert_body_to_form_data(&req_body) {
                         Ok(val) => val,

@@ -1,6 +1,6 @@
 # Pingora Cheet Sheet
 
-This is companion documentation for the examples here: https://github.com/cloudflare/pingora/tree/main/pingora-proxy/examples
+This is companion documentation for the examples here: <https://github.com/cloudflare/pingora/tree/main/pingora-proxy/examples>
 
 This cheat sheet is data from some examples I have used and things I learnt at runtime when working with Pingora through trial and error.
 Please help contribute some if you have more examples or gotchas to add to reduce paper-cuts and bad dev experiences.
@@ -106,5 +106,10 @@ Please help contribute some if you have more examples or gotchas to add to reduc
     }
     ```
 
-    Similarly here we need to make sure we have captured the whole body iteratively. We consume the body since the buffer is directly tied to the response, we can perist response body state in the `ctx` object.
+    Similarly we made sure we have captured the whole body iteratively.We consume the body since the buffer is directly tied to the response, we can buffer the response body in the `ctx` object.
     If the `end_of_stream` is true, we can process the buffered data and modify the response body as we see fit.
+
+Helpful links:
+
+- Examples: <https://github.com/cloudflare/pingora/tree/main/pingora-proxy/examples>
+- Lifecycle of a request through Pingora: <https://github.com/cloudflare/pingora/blob/main/docs/user_guide/phase.md#pingora-proxy-phases-and-filters>
