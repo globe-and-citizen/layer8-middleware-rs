@@ -1,6 +1,7 @@
 use env_logger::{Env, Target};
-use reverse_proxy::run_proxy_server;
 use log::{error, info, warn, LevelFilter};
+
+use reverse_proxy::run_proxy_server;
 
 fn main() {
     dotenv::dotenv().ok();
