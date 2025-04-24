@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "forward_proxy"
+name = "reverse_proxy"
 path = "src/lib.rs"
 
 [dependencies]
@@ -27,6 +27,7 @@ libc = "0.2.171"
 # TODO: update once <https://github.com/globe-and-citizen/layer8-primitives-rs/pull/15> and next version has been released
 layer8-primitives = { git = "https://github.com/globe-and-citizen/layer8-primitives-rs.git", branch = "upd/split-metadata-from-header" }
 url = "2.5.4"
+form-data = "0.6.0"
 
 [dev-dependencies]
 env_logger = "0.11.7"

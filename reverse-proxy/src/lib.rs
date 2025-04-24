@@ -1,4 +1,5 @@
 //! This is the API interface for the layer8 forward proxy.
+
 use core::default::Default;
 use std::{
     str::FromStr,
@@ -10,19 +11,17 @@ use async_trait::async_trait;
 use base64::{self, engine::general_purpose::URL_SAFE as base64_enc_dec, Engine as _};
 use bytes::Bytes;
 use http::{
-    header::{ACCEPT_RANGES, CONTENT_LENGTH, CONTENT_TYPE, TRANSFER_ENCODING},
+    header::{ACCEPT_RANGES, CONTENT_LENGTH, CONTENT_TYPE, HOST, TRANSFER_ENCODING},
     HeaderName, Method, Uri,
 };
-use log::{debug, error, info, warn};
-use pingora::{
-    http::{RequestHeader, ResponseHeader},
-    modules::http::HttpModules,
-};
+use log::{debug, error, info};
+use pingora::http::{RequestHeader, ResponseHeader};
 use pingora_core::{
     prelude::{HttpPeer, Opt, Result},
     server::Server,
 };
 use pingora_proxy::{ProxyHttp, Session};
+use serde_json::json;
 
 mod middleware;
 mod state;
@@ -30,9 +29,8 @@ mod websocket_ext;
 use layer8_middleware_rs::{Ecdh, InMemStorage, InitEcdhReturn};
 use layer8_primitives::{
     crypto::{base64_to_jwk, generate_key_pair, KeyUse},
-    types::{self, Layer8Envelope, Request, RequestMetadata, Response, RoundtripEnvelope, WebSocketPayload},
+    types::{self, Layer8Envelope, Request, RequestMetadata, RoundtripEnvelope, WebSocketPayload},
 };
-use serde_json::{de, json};
 use state::{ConnectionContext, Responses};
 use websocket_ext::{construct_raw_websocket_frame, parse_payload_from_raw_frame_bytes};
 
@@ -60,8 +58,6 @@ impl ProxyHttp for Layer8Proxy {
         }
     }
 
-    fn init_downstream_modules(&self, _: &mut HttpModules) {}
-
     // This hook is responsible for processing the request metadata if provided
     async fn upstream_request_filter(&self, session: &mut Session, request_headers: &mut RequestHeader, ctx: &mut Self::CTX) -> Result<()> {
         debug!("-----------------------------------------------------------");
@@ -79,7 +75,7 @@ impl ProxyHttp for Layer8Proxy {
         {
             match request_headers.headers.get("x-client-uuid") {
                 Some(val) => ctx.metadata.client_uuid = val.to_str().map_err(|e| to_pingora_err(&e.to_string()))?.to_string(),
-                None => ctx.metadata.client_uuid = String::new(),
+                None => return Ok(()),
             }
 
             match request_headers.headers.get("x-tunnel") {
@@ -118,6 +114,10 @@ impl ProxyHttp for Layer8Proxy {
 
         // we can only remove the headers iteratively
         for (key, _) in request_headers.headers.clone().iter() {
+            if key.eq(&HOST) {
+                continue;
+            }
+
             request_headers.remove_header(key);
         }
 
@@ -133,19 +133,9 @@ impl ProxyHttp for Layer8Proxy {
                 to_pingora_err("Failed to find shared secret for client uuid")
             })?;
 
-            let decrypted = shared_secret.symmetric_decrypt(&header_val).map_err(|e| to_pingora_err(&e.to_string()))?;
-
-            debug!("---------------------------------------------------------------");
-            warn!("Decrypted Request Header: {:?}", String::from_utf8_lossy(&decrypted));
-            debug!("---------------------------------------------------------------");
-
             let request_metadata =
                 serde_json::from_slice::<RequestMetadata>(&shared_secret.symmetric_decrypt(&header_val).map_err(|e| to_pingora_err(&e.to_string()))?)
                     .map_err(|e| to_pingora_err(&e.to_string()))?;
-
-            debug!("---------------------------------------------------------------");
-            info!("Request Metadata: {:?}", request_metadata);
-            debug!("---------------------------------------------------------------");
 
             // overwrite the request header
             let path = {
@@ -165,19 +155,16 @@ impl ProxyHttp for Layer8Proxy {
             request_headers.set_method(method);
             request_headers.set_uri(path);
             for (key, value) in request_metadata.headers {
-                request_headers.append_header(key, value).map_err(|e| {
+                request_headers.insert_header(key, value).map_err(|e| {
                     error!("Failed to append header: {}", e);
                     to_pingora_err(&e.to_string())
                 })?;
             }
 
-            // request_headers.remove_header(&CONTENT_LENGTH);
-            // request_headers.append_header(&TRANSFER_ENCODING, "chunked")?;
-
-            debug!("---------------------------------------------------------------");
-            debug!("Decoded Request Headers: {:?}", request_headers);
-            debug!("---------------------------------------------------------------");
+            request_headers.remove_header(&CONTENT_LENGTH);
+            request_headers.insert_header(&TRANSFER_ENCODING, "chunked")?;
         }
+
         Ok(())
     }
 
@@ -246,16 +233,7 @@ impl ProxyHttp for Layer8Proxy {
             (Some(val), None) => ctx.responses = Responses::Init(val),
 
             // tunnel already setup; we only need to propagate the intended request body
-            (None, Some(payload)) => {
-                debug!("---------------------------------------------------------");
-                debug!("------------------ Payload length: {} ------------------", payload.len());
-                debug!("Decoded Payload: {:?}", String::from_utf8_lossy(&payload));
-
-                debug!("Headers To Send: {:?}", session.req_header());
-                debug!("---------------------------------------------------------");
-
-                *body = Some(Bytes::from(payload))
-            }
+            (None, Some(payload)) => *body = Some(Bytes::from(payload)),
 
             _ => return Err(to_pingora_err("Error processing data; we only expected the payload")),
         }
@@ -269,7 +247,7 @@ impl ProxyHttp for Layer8Proxy {
         debug!("---------------- CallStack: response_filter ----------------");
         debug!("-----------------------------------------------------------");
 
-        if session.is_upgrade_req() {
+        if session.is_upgrade_req() || ctx.metadata.client_uuid.is_empty() {
             return Ok(());
         }
 
@@ -303,7 +281,7 @@ impl ProxyHttp for Layer8Proxy {
         *upstream_response = ResponseHeader::build(200, Option::None)?;
         upstream_response.remove_header(&CONTENT_LENGTH);
         upstream_response.remove_header(&ACCEPT_RANGES);
-        upstream_response.append_header(&CONTENT_TYPE, "application-json")?;
+        upstream_response.insert_header(&CONTENT_TYPE, "application-json")?;
 
         // we don't know the response length yet since we are going to encrypt and encode it, so we set it as chunked
         upstream_response.append_header(&TRANSFER_ENCODING, "chunked")?;
@@ -368,6 +346,10 @@ impl ProxyHttp for Layer8Proxy {
             return Ok(Option::None);
         }
 
+        if ctx.metadata.client_uuid.is_empty() {
+            return Ok(Option::None);
+        }
+
         // buffer the data
         if let Some(b) = body {
             ctx.payload_buff.extend_from_slice(&b[..]);
@@ -377,6 +359,11 @@ impl ProxyHttp for Layer8Proxy {
         if !end_of_stream {
             // we're still not at the last chunk, can't process the data yet
             return Ok(Option::None);
+        }
+
+        if let Response(val) = &mut ctx.responses {
+            val.body.extend_from_slice(&ctx.payload_buff[..]);
+            ctx.payload_buff.clear();
         }
 
         debug!("---------------------------------------------------------------");
@@ -410,7 +397,6 @@ impl ProxyHttp for Layer8Proxy {
         }
 
         ctx.responses = None;
-        ctx.payload_buff.clear();
         Ok(Option::None)
     }
 
@@ -606,6 +592,7 @@ pub(crate) fn to_pingora_err(val: &str) -> Box<pingora_core::Error> {
     pingora_core::Error::because(pingora_core::ErrorType::InternalError, "", val)
 }
 
+#[allow(dead_code)] // important for the cli to shutdown, todo
 fn send_signal(signal: libc::c_int) {
     use libc::{getpid, kill};
 

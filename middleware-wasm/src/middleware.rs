@@ -627,7 +627,7 @@ fn serve_static(req: &JsValue, res: &JsValue, dir: String) {
     response_set_body_end(res, data.as_bytes());
 }
 
-fn convert_body_to_form_data(req_body: &serde_json::Map<String, serde_json::Value>) -> Result<JsValue, String> {
+pub fn convert_body_to_form_data(req_body: &serde_json::Map<String, serde_json::Value>) -> Result<JsValue, String> {
     let form_data = FormData::new().map_err(|err| {
         console_error(&format!("error creating form data {}", err.as_string().unwrap_or("".to_string())));
         "error creating form data".to_string()

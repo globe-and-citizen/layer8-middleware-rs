@@ -14,16 +14,12 @@ pub struct ConnectionContext {
     pub responses: Responses,
 }
 
+#[derive(Default)]
 pub enum Responses {
+    #[default]
     None,
     Init(InitEcdhReturn),
     Response(types::Response),
-}
-
-impl Default for Responses {
-    fn default() -> Self {
-        Responses::None
-    }
 }
 
 impl std::fmt::Debug for Responses {
@@ -44,5 +40,6 @@ pub struct Metadata {
     pub x_ecdh_init: String,
     /// This is the header that identifies the request as part of the tunnel.
     pub x_tunnel: bool,
+    /// This is header that provides client specific encryption information.
     pub mp_jwt: String,
 }

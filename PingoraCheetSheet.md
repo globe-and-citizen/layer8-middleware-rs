@@ -109,6 +109,17 @@ Please help contribute some if you have more examples or gotchas to add to reduc
     Similarly we made sure we have captured the whole body iteratively.We consume the body since the buffer is directly tied to the response, we can buffer the response body in the `ctx` object.
     If the `end_of_stream` is true, we can process the buffered data and modify the response body as we see fit.
 
+4. When modifying the request headers, make sure that the HOST header is supplied or not removed; this should probably be reported as undefined behavior to the Pingora team since
+    the HOST value does not matter but important that it is supplied.
+
+    ```rust
+    session
+        .request_header_mut()
+        .insert("Host".to_string(), "localhost:8080".to_string());
+    ```
+
+    Also the modified headers are not accessible in the `request_body_filter` method, those changes are cached and do not reflect in the session data.
+
 Helpful links:
 
 - Examples: <https://github.com/cloudflare/pingora/tree/main/pingora-proxy/examples>

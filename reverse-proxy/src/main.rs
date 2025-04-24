@@ -1,5 +1,5 @@
 use env_logger::{Env, Target};
-use forward_proxy::run_proxy_server;
+use reverse_proxy::run_proxy_server;
 use log::{error, info, warn, LevelFilter};
 
 fn main() {
