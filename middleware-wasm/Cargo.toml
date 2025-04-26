@@ -23,8 +23,7 @@ url = "2.5.2"
 rand = { version = "0.8", features = ["small_rng"] }
 form_urlencoded = "1.2.1"
 mime-sniffer = "0.1.2"
-# TODO: update once <https://github.com/globe-and-citizen/layer8-primitives-rs/pull/15> and next version has been released
-layer8-primitives = { git = "https://github.com/globe-and-citizen/layer8-primitives-rs.git", branch = "upd/split-metadata-from-header" }
+layer8-primitives = "0.2"
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }
