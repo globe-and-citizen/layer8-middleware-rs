@@ -14,7 +14,7 @@ use http::{
     header::{ACCEPT_RANGES, CONTENT_LENGTH, CONTENT_TYPE, HOST, TRANSFER_ENCODING},
     HeaderName, Method, Uri,
 };
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use pingora::http::{RequestHeader, ResponseHeader};
 use pingora_core::{
     prelude::{HttpPeer, Opt, Result},
@@ -161,8 +161,11 @@ impl ProxyHttp for Layer8Proxy {
                 })?;
             }
 
-            request_headers.remove_header(&CONTENT_LENGTH);
-            request_headers.insert_header(&TRANSFER_ENCODING, "chunked")?;
+            // if we're requesting for assets like a logo, ok to skip the transfer encoding since the
+            // body is empty
+            if request_headers.remove_header("layer8-empty-body").is_none() {
+                request_headers.insert_header(&TRANSFER_ENCODING, "chunked")?;
+            }
         }
 
         Ok(())
@@ -303,12 +306,22 @@ impl ProxyHttp for Layer8Proxy {
         debug!("---------------- CallStack: response_body_filter ----------------");
         debug!("-----------------------------------------------------------------");
 
-        // todo: reimplement with new changes
+        use state::Responses::*;
         if session.is_upgrade_req() {
-            if !ctx.payload_buff.is_empty() {
-                let output = construct_raw_websocket_frame(&ctx.payload_buff, false).map_err(|e| to_pingora_err(&e))?;
+            if let Init(val) = &ctx.responses {
+                let data = Layer8Envelope::WebSocket(WebSocketPayload {
+                    payload: Option::None,
+                    metadata: json!({
+                        "mp-jwt": val.mp_jwt,
+                        "server_pubKeyECDH":val.server_public_key,
+                    }),
+                })
+                .to_json_bytes();
+
+                let output = construct_raw_websocket_frame(&data, false).map_err(|e| to_pingora_err(&e))?;
                 *body = Some(Bytes::from(output));
                 ctx.payload_buff.clear();
+                ctx.responses = None;
                 return Ok(Option::None);
             }
 
@@ -370,7 +383,6 @@ impl ProxyHttp for Layer8Proxy {
         debug!("Response Body: {:?}", ctx.responses);
         debug!("---------------------------------------------------------------");
 
-        use state::Responses::*;
         match &ctx.responses {
             Init(val) => *body = Some(Bytes::from(val.server_public_key.as_bytes().to_vec())),
 
@@ -453,6 +465,10 @@ impl Layer8Proxy {
 
                 match envelope {
                     Layer8Envelope::WebSocket(payload) => {
+                        warn!("-------------------------------------------------");
+                        warn!("WebSocket Payload: {:?}", payload);
+                        warn!("-------------------------------------------------");
+
                         let metadata = serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(payload.metadata.clone())
                             .expect("we expect a json object as the metadata");
                         (metadata, Some(payload))

@@ -707,7 +707,7 @@ pub fn convert_body_to_form_data(req_body: &serde_json::Map<String, serde_json::
 
 pub fn get_arbitrary_boundary() -> String {
     let mut small_rng = SmallRng::from_entropy();
-    let random_bytes: [u8; 16] = small_rng.gen();
+    let random_bytes: [u8; 16] = small_rng.r#gen();
     format!("----Layer8FormBoundary{}", base64_enc_dec.encode(random_bytes))
 }
 

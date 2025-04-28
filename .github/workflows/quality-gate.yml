@@ -52,7 +52,7 @@ jobs:
           cargo fmt --all --check
 
   cargo-doc:
-    runs-on: ubuntu--latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: run cargo doc
