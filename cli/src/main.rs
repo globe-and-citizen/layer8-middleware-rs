@@ -1,7 +1,7 @@
 use clap::Parser;
 use log::{debug, error, info};
 
-use forward_proxy::run_proxy_server;
+use reverse_proxy::run_proxy_server;
 
 mod daemonize;
 use daemonize::{add_proxy, get_all_proxies, get_proxy, prepare_bookkeeping, remove_proxy};

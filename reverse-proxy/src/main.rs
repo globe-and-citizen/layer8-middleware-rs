@@ -1,23 +1,14 @@
 use env_logger::{Env, Target};
-use forward_proxy::run_proxy_server;
 use log::{error, info, warn, LevelFilter};
-use std::io::Write;
+
+use reverse_proxy::run_proxy_server;
 
 fn main() {
     dotenv::dotenv().ok();
 
-    env_logger::Builder::from_env(Env::default())
-        .format(|buf, record| {
-            writeln!(
-                buf,
-                "{}:{} {} [{}] - {}",
-                record.file().unwrap_or("unknown"),
-                record.line().unwrap_or(0),
-                chrono::Local::now().format("%Y-%m-%dT%H:%M:%S"),
-                record.level(),
-                record.args()
-            )
-        })
+    env_logger::Builder::from_env(Env::default().write_style_or("RUST_LOG_STYLE", "always"))
+        .format_file(true)
+        .format_line_number(true)
         .target(Target::Stdout)
         .filter(Some("logger_example"), LevelFilter::Debug)
         .init();
@@ -40,7 +31,10 @@ fn main() {
 
     let service_port = std::env::var("SERVICE_PORT")
         .map(|v| match v.parse::<u16>() {
-            Ok(port) => port,
+            Ok(port) => {
+                info!("Using service port: {}", port);
+                port
+            }
             Err(_) => {
                 error!("Failed to parse SERVICE_PORT environment variable. Using default port 8080");
                 panic!("Failed to parse SERVICE_PORT environment variable");

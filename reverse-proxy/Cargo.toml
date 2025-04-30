@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "forward_proxy"
+name = "reverse_proxy"
 path = "src/lib.rs"
 
 [dependencies]
@@ -12,7 +12,7 @@ async-trait = "0.1"
 log = "0.4"
 pingora-core = "0.4"
 pingora-proxy = "0.4"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["sync"] }
 env_logger = "0.11.7"
 dotenv = "0.15"
 layer8-middleware-rs = { path = "../middleware-wasm" }
@@ -24,10 +24,11 @@ chrono = "0.4.39"
 rand = "0.9.0"
 base64 = "0.22.1"
 libc = "0.2.171"
-layer8-primitives = "0.1.2"
+layer8-primitives = "0.2"
+url = "2.5.4"
+form-data = "0.6.0"
 
 [dev-dependencies]
-# layer8-tungstenite = { git = "https://github.com/globe-and-citizen/layer8-tungstenite.git", branch = "master" }
 env_logger = "0.11.7"
 hyper = { version = "1", features = ["full"] }
 hyper-util = "0.1"
