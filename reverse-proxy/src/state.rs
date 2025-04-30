@@ -8,12 +8,17 @@ use layer8_primitives::types;
 pub struct ConnectionContext {
     /// This holds the state expected to be persisted across the lifetime of the connection.
     pub persistent_storage: InMemStorage,
-    /// This holds data that is propagated from one filter to another.
+    /// We hold data that is collected from the network, it does not necessarily represent the whole request or response
+    /// body and works as an aggregator between calls to the filter.
     pub payload_buff: Vec<u8>,
+    /// This is the metadata information that is created from the request headers which can be overwritten, it is held
+    /// in the connection context to be passed to the next filter.
     pub metadata: Metadata,
+    /// This is the state that is created from the server's response and is passed to the next filter.
     pub responses: Responses,
 }
 
+/// This are response that are recorded and passed to the next filter using the connection context.
 #[derive(Default)]
 pub enum Responses {
     #[default]
@@ -32,6 +37,8 @@ impl std::fmt::Debug for Responses {
     }
 }
 
+/// This holds the metadata that is collected from the header of the layer8 request, it is passed to
+/// the next filter using the connection context.
 #[derive(Debug, Clone, Default)]
 pub struct Metadata {
     /// This is the UUID of the client that is connected to the proxy server before the header values are overwritten.
