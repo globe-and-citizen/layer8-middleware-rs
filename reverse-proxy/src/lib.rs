@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use base64::{self, engine::general_purpose::URL_SAFE as base64_enc_dec, Engine as _};
 use bytes::Bytes;
 use http::{
-    header::{ACCEPT_RANGES, CONTENT_LENGTH, CONTENT_TYPE, HOST, TRANSFER_ENCODING},
+    header::{CONTENT_LENGTH, CONTENT_TYPE, HOST, TRANSFER_ENCODING},
     HeaderName, Method, Uri,
 };
 use log::{debug, error, info, warn};
@@ -114,7 +114,7 @@ impl ProxyHttp for Layer8Proxy {
 
         // we can only remove the headers iteratively
         for (key, _) in request_headers.headers.clone().iter() {
-            if key.eq(&HOST) {
+            if key.eq(&HOST) || key.eq("layer8-empty-body") {
                 continue;
             }
 
@@ -155,7 +155,7 @@ impl ProxyHttp for Layer8Proxy {
             request_headers.set_method(method);
             request_headers.set_uri(path);
             for (key, value) in request_metadata.headers {
-                request_headers.insert_header(key, value).map_err(|e| {
+                request_headers.insert_header(key, value.trim().to_lowercase()).map_err(|e| {
                     error!("Failed to append header: {}", e);
                     to_pingora_err(&e.to_string())
                 })?;
@@ -236,7 +236,7 @@ impl ProxyHttp for Layer8Proxy {
             (Some(val), None) => ctx.responses = Responses::Init(val),
 
             // tunnel already setup; we only need to propagate the intended request body
-            (None, Some(payload)) => *body = Some(Bytes::from(payload)),
+            (None, Some(payload)) => _ = body.replace(Bytes::from(payload)),
 
             _ => return Err(to_pingora_err("Error processing data; we only expected the payload")),
         }
@@ -256,7 +256,17 @@ impl ProxyHttp for Layer8Proxy {
 
         use state::Responses::*;
         let resp = match &ctx.responses {
-            None => types::Response {
+            Init(val) => {
+                let mut header = ResponseHeader::build(200, Option::None)?;
+                header.append_header(&CONTENT_LENGTH, val.server_public_key.len())?;
+                header.append_header("server_pubKeyECDH", val.server_public_key.clone())?;
+                header.append_header("mp-jwt", val.mp_jwt.clone())?;
+                *upstream_response = header;
+                return Ok(());
+            }
+
+            // expect None, Some(_) will never be the case here
+            _ => types::Response {
                 status: upstream_response.status.as_u16(),
                 status_text: upstream_response.status.as_str().to_string(),
                 headers: upstream_response
@@ -266,28 +276,12 @@ impl ProxyHttp for Layer8Proxy {
                     .collect(),
                 body: Vec::new(),
             },
-
-            Init(val) => {
-                let mut header = ResponseHeader::build(200, Option::None)?;
-                header.append_header(&CONTENT_LENGTH, val.server_public_key.len())?;
-                header.append_header("server_pubKeyECDH", val.server_public_key.clone())?;
-                header.append_header("mp-jwt", val.mp_jwt.clone())?;
-                session.write_response_header_ref(&header).await?;
-                return Ok(());
-            }
-
-            Response(_) => {
-                unimplemented!("we don't expect this to be called; report this as a bug");
-            }
         };
 
-        *upstream_response = ResponseHeader::build(200, Option::None)?;
-        upstream_response.remove_header(&CONTENT_LENGTH);
-        upstream_response.remove_header(&ACCEPT_RANGES);
-        upstream_response.insert_header(&CONTENT_TYPE, "application-json")?;
-
-        // we don't know the response length yet since we are going to encrypt and encode it, so we set it as chunked
-        upstream_response.append_header(&TRANSFER_ENCODING, "chunked")?;
+        let mut header = ResponseHeader::build(200, Option::None)?;
+        header.insert_header(&CONTENT_TYPE, "application/json")?;
+        header.insert_header(&TRANSFER_ENCODING, "chunked")?;
+        *upstream_response = header;
         ctx.responses = Response(resp);
         Ok(())
     }
