@@ -16,6 +16,28 @@ env:
   RUST_BACKTRACE: short
 
 jobs:
+  ## Issue: <https://github.com/cloudflare/pingora/issues/552>
+  ## `cargo-audit` fails with the following error:
+  ## Crate:     protobuf
+  ## Version:   2.28.0
+  ## Title:     Crash due to uncontrolled recursion in protobuf crate
+  ## Date:      2024-12-12
+  ## ID:        RUSTSEC-2024-0437
+  ## URL:       https://rustsec.org/advisories/RUSTSEC-2024-0437
+  ## Solution:  Upgrade to >=3.7.2
+  ## Dependency tree:
+  ## protobuf 2.28.0
+  ## └── prometheus 0.13.4
+  ##     └── pingora-core 0.4.0
+  ##         ├── reverse-proxy 0.1.0
+  ##         │   └── cli 0.1.24
+  ##         ├── pingora-proxy 0.4.0
+  ##         │   └── reverse-proxy 0.1.0
+  ##         ├── pingora-cache 0.4.0
+  ##         │   └── pingora-proxy 0.4.0
+  ##         └── pingora 0.4.0
+  ##             └── reverse-proxy 0.1.0
+
   # audit:
   #   runs-on: ubuntu-latest
   #   steps:

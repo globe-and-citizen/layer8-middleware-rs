@@ -71,6 +71,14 @@ impl ProxyHttp for Layer8Proxy {
             return Ok(());
         }
 
+        // check the url if it's a l8 health check
+        if request_headers.uri.path() == "/l8_health_check" {
+            ctx.responses = Responses::Response(types::Response { ..Default::default() });
+            request_headers.set_method(Method::GET);
+            request_headers.set_uri(Uri::from_str("/").map_err(|e| to_pingora_err(&e.to_string()))?);
+            return Ok(());
+        }
+
         // persisting important headers used to identify and encrypt the client data
         {
             match request_headers.headers.get("x-client-uuid") {
@@ -251,6 +259,12 @@ impl ProxyHttp for Layer8Proxy {
         debug!("-----------------------------------------------------------");
 
         if session.is_upgrade_req() || ctx.metadata.client_uuid.is_empty() {
+            // if there's a response, return it
+            if let Response(_) = &ctx.responses {
+                *upstream_response = ResponseHeader::build(200, Option::None)?;
+                ctx.responses = Responses::None;
+            }
+
             return Ok(());
         }
 
