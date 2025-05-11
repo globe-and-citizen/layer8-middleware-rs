@@ -23,7 +23,6 @@ use pingora_core::{
 use pingora_proxy::{ProxyHttp, Session};
 use serde_json::json;
 
-mod middleware;
 mod state;
 mod websocket_ext;
 use layer8_middleware_rs::{Ecdh, InMemStorage, InitEcdhReturn};
@@ -68,6 +67,14 @@ impl ProxyHttp for Layer8Proxy {
 
         // if is a duplex connection, ignore
         if session.is_upgrade_req() {
+            return Ok(());
+        }
+
+        // check the url if it's a l8 health check
+        if request_headers.uri.path() == "/l8_health_check" {
+            ctx.responses = Responses::Response(types::Response::default());
+            request_headers.set_method(Method::GET);
+            request_headers.set_uri(Uri::from_str("/").map_err(|e| to_pingora_err(&e.to_string()))?);
             return Ok(());
         }
 
@@ -250,11 +257,17 @@ impl ProxyHttp for Layer8Proxy {
         debug!("---------------- CallStack: response_filter ----------------");
         debug!("-----------------------------------------------------------");
 
+        use state::Responses::*;
         if session.is_upgrade_req() || ctx.metadata.client_uuid.is_empty() {
+            // if there's a response, return it
+            if let Response(_) = &ctx.responses {
+                *upstream_response = ResponseHeader::build(200, Option::None)?;
+                ctx.responses = Responses::None;
+            }
+
             return Ok(());
         }
 
-        use state::Responses::*;
         let resp = match &ctx.responses {
             Init(val) => {
                 let mut header = ResponseHeader::build(200, Option::None)?;

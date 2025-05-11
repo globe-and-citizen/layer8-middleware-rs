@@ -10,7 +10,3 @@ debug = false
 panic = "abort"
 strip = "debuginfo"
 targets = ["wasm32-unknown-unknown"]
-
-# TODO: https://github.com/cloudflare/pingora/issues/568
-[patch.crates-io]
-sfv = { git = "https://github.com/undef1nd/sfv.git", tag = "v0.9.4" }

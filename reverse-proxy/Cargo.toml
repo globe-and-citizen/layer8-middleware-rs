@@ -10,14 +10,14 @@ path = "src/lib.rs"
 [dependencies]
 async-trait = "0.1"
 log = "0.4"
-pingora-core = "0.4"
-pingora-proxy = "0.4"
+pingora-core = "0.5"
+pingora-proxy = "0.5"
 tokio = { version = "1", features = ["sync"] }
 env_logger = "0.11.7"
 dotenv = "0.15"
 layer8-middleware-rs = { path = "../middleware-wasm" }
 serde_json = "1.0.138"
-pingora = "0.4.0"
+pingora = "0.5"
 bytes = "1.10.0"
 http = "1.2.0"
 chrono = "0.4.39"
