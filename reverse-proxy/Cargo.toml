@@ -24,7 +24,7 @@ chrono = "0.4.39"
 rand = "0.9.0"
 base64 = "0.22.1"
 libc = "0.2.171"
-layer8-primitives = "0.2"
+layer8-primitives = "=0.2.1"
 url = "2.5.4"
 form-data = "0.6.0"
 
